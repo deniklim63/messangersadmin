@@ -1,0 +1,152 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Platform {
+  TELEGRAM
+  VK
+}
+
+enum SubscriberStatus {
+  ACTIVE
+  BLOCKED
+  LEFT
+}
+
+enum MessageDirection {
+  IN
+  OUT
+}
+
+/// Подключённый бот (Telegram или сообщество ВК).
+model Bot {
+  id       String   @id @default(cuid())
+  platform Platform
+  title    String
+  isActive Boolean  @default(true)
+
+  /// Telegram: токен от @BotFather. ВК: ключ доступа сообщества.
+  token    String?
+  /// Telegram: @username бота. ВК: короткое имя сообщества.
+  username String?
+
+  /// Telegram: секрет для заголовка X-Telegram-Bot-Api-Secret-Token.
+  webhookSecret String @default(cuid())
+
+  /// ВК: id сообщества, строка подтверждения и секретный ключ Callback API.
+  vkGroupId      String?
+  vkConfirmation String?
+  vkSecret       String?
+
+  /// Токен для внешних источников: POST /api/ingest.
+  ingestToken String @unique @default(cuid())
+
+  /// Включает встроенную анкету (имя → телефон → email → город).
+  collectSurvey Boolean @default(true)
+
+  subscribers Subscriber[]
+  messages    Message[]
+  events      WebhookEvent[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// Город — отдельной таблицей, чтобы фильтр не зависел от написания.
+model City {
+  id       String    @id @default(cuid())
+  name     String
+  slug     String    @unique
+  contacts Contact[]
+
+  createdAt DateTime @default(now())
+}
+
+/// Человек. Один на все боты: если телефон или email совпал — записи склеиваются.
+model Contact {
+  id       String  @id @default(cuid())
+  name     String?
+  phone    String? @unique
+  phoneRaw String?
+  email    String? @unique
+  cityId   String?
+  city     City?   @relation(fields: [cityId], references: [id], onDelete: SetNull)
+  notes    String?
+
+  subscribers Subscriber[]
+  messages    Message[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([cityId])
+  @@index([createdAt])
+}
+
+/// Присутствие человека в конкретном боте. Один Contact — много Subscriber.
+model Subscriber {
+  id        String  @id @default(cuid())
+  botId     String
+  bot       Bot     @relation(fields: [botId], references: [id], onDelete: Cascade)
+  contactId String
+  contact   Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  /// chat_id в Telegram / user_id в ВК.
+  externalId String
+  username   String?
+  firstName  String?
+  lastName   String?
+
+  status SubscriberStatus @default(ACTIVE)
+
+  /// Шаг встроенной анкеты: name | phone | email | city | done.
+  surveyStep String?
+
+  lastSeenAt DateTime?
+  messages   Message[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([botId, externalId])
+  @@index([contactId])
+}
+
+/// История переписки — основа для будущих рассылок и чата.
+model Message {
+  id           String           @id @default(cuid())
+  botId        String
+  bot          Bot              @relation(fields: [botId], references: [id], onDelete: Cascade)
+  subscriberId String
+  subscriber   Subscriber       @relation(fields: [subscriberId], references: [id], onDelete: Cascade)
+  contactId    String?
+  contact      Contact?         @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  direction    MessageDirection
+  text         String
+  externalId   String?
+
+  createdAt DateTime @default(now())
+
+  @@index([subscriberId, createdAt])
+  @@index([botId, createdAt])
+}
+
+/// Сырые входящие запросы — чтобы видеть, что бот подключён и что он присылает.
+model WebhookEvent {
+  id      String  @id @default(cuid())
+  botId   String?
+  bot     Bot?    @relation(fields: [botId], references: [id], onDelete: Cascade)
+  source  String
+  payload Json
+  error   String?
+
+  createdAt DateTime @default(now())
+
+  @@index([botId, createdAt])
+  @@index([createdAt])
+}

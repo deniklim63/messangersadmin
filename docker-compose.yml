@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: tg-admin-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: tgadmin
+      POSTGRES_PASSWORD: tgadmin
+      POSTGRES_DB: tgadmin
+    ports:
+      - "5433:5432"
+    volumes:
+      - tg-admin-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tgadmin -d tgadmin"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  tg-admin-pgdata:
