@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { BotSettingsForm, TelegramWebhookButtons } from "@/components/bot-settings-form";
+import { BotSettingsForm, TelegramWebhookButtons, VkConnectButton } from "@/components/bot-settings-form";
 import { CopyField } from "@/components/copy-field";
+import { SendTestForm } from "@/components/send-message-form";
 import { deleteBot } from "@/lib/actions-bots";
 import { prisma } from "@/lib/db";
 import { getTelegramWebhookInfo } from "@/lib/platforms";
@@ -77,14 +78,48 @@ export default async function BotPage({ params }: { params: Promise<{ id: string
               </div>
             </>
           ) : (
-            <div className="space-y-2 text-sm text-[var(--muted)]">
-              <p>
-                В сообществе: Управление → Работа с API → Callback API. Вставьте адрес выше,
-                скопируйте оттуда строку подтверждения и секретный ключ в поля ниже, сохраните —
-                и только потом нажимайте «Подтвердить» в ВК.
+            <>
+              <p className="text-sm text-[var(--muted)]">
+                Нажмите кнопку — админка сама найдёт сообщество по ключу, пропишет адрес
+                в Callback API, подтвердит его и включит события. Вручную ничего искать не нужно.
               </p>
-              <p>Не забудьте включить события «Входящее сообщение», «Разрешение» и «Запрет».</p>
-            </div>
+              <VkConnectButton botId={bot.id} />
+              <div className="rounded-lg bg-[var(--bg)] p-3 text-sm">
+                {!bot.token
+                  ? "Ключ доступа не задан — добавьте его в настройках ниже"
+                  : bot.vkGroupId
+                    ? `Сообщество ${bot.vkGroupId} подключено${
+                        bot.vkConfirmation ? "" : " (строка подтверждения не получена)"
+                      }`
+                    : "Сообщество ещё не подключено"}
+              </div>
+              <details className="text-sm text-[var(--muted)]">
+                <summary className="cursor-pointer">Где взять ключ доступа</summary>
+                <ol className="mt-2 list-decimal space-y-1 pl-5">
+                  <li>
+                    Сообщество → Управление → Сообщения: включите сообщения сообщества, а в
+                    «Настройки для бота» — возможности ботов. Пока сообщения выключены, бот
+                    работать не будет.
+                  </li>
+                  <li>
+                    Управление → <b>Дополнительно</b> → Работа с API → вкладка «Ключи доступа».
+                    Раздел спрятан именно внутри «Дополнительно» — отдельного пункта в меню нет.
+                  </li>
+                  <li>
+                    «Создать ключ» и отметьте: сообщения сообщества, управление сообществом,
+                    фотографии. Без права на управление админка не сможет прописать адрес сама,
+                    без фотографий не отправит картинки из сценария.
+                  </li>
+                  <li>Скопируйте ключ, вставьте его в настройках ниже и сохраните.</li>
+                  <li>Вернитесь сюда и нажмите «Подключить автоматически».</li>
+                </ol>
+                <p className="mt-2">
+                  Id сообщества искать не нужно — админка определит его по ключу. Если ключ создан
+                  без права на управление, ВКонтакте ответит ошибкой доступа: создайте ключ заново
+                  с нужной галочкой.
+                </p>
+              </details>
+            </>
           )}
 
           <CopyField label="Токен для внешних источников (Bearer)" value={bot.ingestToken} />
@@ -98,6 +133,14 @@ export default async function BotPage({ params }: { params: Promise<{ id: string
             </pre>
           </details>
         </div>
+      </section>
+
+      <section className="rounded-2xl border border-[var(--line)] bg-white p-5">
+        <h2 className="text-sm font-semibold">Проверка</h2>
+        <p className="mt-1 text-sm text-[var(--muted)]">
+          Отправьте себе сообщение, чтобы убедиться, что токен рабочий.
+        </p>
+        <SendTestForm botId={bot.id} platform={bot.platform} />
       </section>
 
       <section className="rounded-2xl border border-[var(--line)] bg-white p-5">

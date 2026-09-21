@@ -13,11 +13,48 @@ const TELEGRAM_CONTACT_KEYBOARD = {
 
 const TELEGRAM_REMOVE_KEYBOARD = { remove_keyboard: true };
 
+export type KeyboardButton = { label: string; url?: string | null; id?: string };
+
+/**
+ * Telegram: кнопки-ссылки бывают только в клавиатуре под сообщением,
+ * поэтому при наличии ссылки весь блок кнопок отдаём инлайном.
+ */
+function telegramInlineKeyboard(buttons: KeyboardButton[]) {
+  return {
+    inline_keyboard: buttons.map((button) => [
+      button.url
+        ? { text: button.label, url: button.url }
+        : { text: button.label, callback_data: (button.id ?? button.label).slice(0, 64) },
+    ]),
+  };
+}
+
+/** Кнопки сценария — обычная клавиатура под полем ввода, по одной в ряд. */
+function telegramKeyboard(labels: string[]) {
+  return {
+    keyboard: labels.map((label) => [{ text: label }]),
+    resize_keyboard: true,
+  };
+}
+
+/** ВКонтакте ждёт клавиатуру строкой JSON и не больше 40 кнопок. */
+function vkKeyboard(buttons: KeyboardButton[]): string {
+  return JSON.stringify({
+    one_time: false,
+    inline: false,
+    buttons: buttons.slice(0, 40).map((button) =>
+      button.url
+        ? [{ action: { type: "open_link", link: button.url, label: button.label.slice(0, 40) } }]
+        : [{ action: { type: "text", label: button.label.slice(0, 40) }, color: "secondary" }],
+    ),
+  });
+}
+
 export async function sendTelegramMessage(
   bot: Pick<Bot, "token">,
   chatId: string,
   text: string,
-  options: { requestContact?: boolean } = {},
+  options: { requestContact?: boolean; html?: boolean; keyboard?: KeyboardButton[] } = {},
 ): Promise<SendResult> {
   if (!bot.token) return { ok: false, error: "У бота не задан токен" };
   try {
@@ -27,9 +64,14 @@ export async function sendTelegramMessage(
       body: JSON.stringify({
         chat_id: chatId,
         text,
+        ...(options.html ? { parse_mode: "HTML", link_preview_options: { is_disabled: false } } : {}),
         reply_markup: options.requestContact
           ? TELEGRAM_CONTACT_KEYBOARD
-          : TELEGRAM_REMOVE_KEYBOARD,
+          : options.keyboard?.length
+            ? options.keyboard.some((button) => button.url)
+              ? telegramInlineKeyboard(options.keyboard)
+              : telegramKeyboard(options.keyboard.map((button) => button.label))
+            : TELEGRAM_REMOVE_KEYBOARD,
       }),
     });
     const data = (await res.json()) as { ok: boolean; description?: string };
@@ -43,6 +85,7 @@ export async function sendVkMessage(
   bot: Pick<Bot, "token">,
   userId: string,
   text: string,
+  options: { attachment?: string; keyboard?: KeyboardButton[] } = {},
 ): Promise<SendResult> {
   if (!bot.token) return { ok: false, error: "У сообщества не задан ключ доступа" };
   try {
@@ -52,6 +95,8 @@ export async function sendVkMessage(
       user_id: userId,
       message: text,
       random_id: String(Date.now() + Math.floor(Math.random() * 1000)),
+      ...(options.attachment ? { attachment: options.attachment } : {}),
+      ...(options.keyboard?.length ? { keyboard: vkKeyboard(options.keyboard) } : {}),
     });
     const res = await fetch("https://api.vk.com/method/messages.send", {
       method: "POST",
@@ -69,11 +114,161 @@ export async function sendMessage(
   bot: Pick<Bot, "token" | "platform">,
   externalId: string,
   text: string,
-  options: { requestContact?: boolean } = {},
+  options: {
+    requestContact?: boolean;
+    html?: boolean;
+    attachment?: string;
+    keyboard?: KeyboardButton[];
+  } = {},
 ): Promise<SendResult> {
   return bot.platform === "TELEGRAM"
     ? sendTelegramMessage(bot, externalId, text, options)
-    : sendVkMessage(bot, externalId, text);
+    : sendVkMessage(bot, externalId, text, {
+        attachment: options.attachment,
+        keyboard: options.keyboard,
+      });
+}
+
+export type MediaKind = "photo" | "video" | "document";
+
+export type MediaSource = {
+  /** file_id, полученный от Telegram при первой отправке — дальше шлём по нему. */
+  fileId?: string;
+  bytes?: Buffer;
+  filename?: string;
+  mime?: string;
+};
+
+/**
+ * Картинка или видео в Telegram. Первому получателю файл уходит целиком,
+ * в ответе приходит file_id — остальным отправляем уже по нему, без перезаливки.
+ */
+export async function sendTelegramMedia(
+  bot: Pick<Bot, "token">,
+  chatId: string,
+  kind: MediaKind,
+  media: MediaSource,
+  caption: string,
+  options: { html?: boolean } = {},
+): Promise<SendResult & { fileId?: string }> {
+  if (!bot.token) return { ok: false, error: "У бота не задан токен" };
+  const method = kind === "photo" ? "sendPhoto" : kind === "video" ? "sendVideo" : "sendDocument";
+
+  try {
+    let response: Response;
+
+    if (media.fileId) {
+      response = await fetch(`https://api.telegram.org/bot${bot.token}/${method}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          chat_id: chatId,
+          [kind]: media.fileId,
+          caption: caption || undefined,
+          ...(caption && options.html ? { parse_mode: "HTML" } : {}),
+        }),
+      });
+    } else if (media.bytes) {
+      const form = new FormData();
+      form.append("chat_id", chatId);
+      form.append(
+        kind,
+        new Blob([new Uint8Array(media.bytes)], { type: media.mime || "application/octet-stream" }),
+        media.filename || (kind === "photo" ? "photo.jpg" : kind === "video" ? "video.mp4" : "file"),
+      );
+      if (caption) {
+        form.append("caption", caption);
+        if (options.html) form.append("parse_mode", "HTML");
+      }
+      response = await fetch(`https://api.telegram.org/bot${bot.token}/${method}`, {
+        method: "POST",
+        body: form,
+      });
+    } else {
+      return { ok: false, error: "Файл не передан" };
+    }
+
+    const data = (await response.json()) as {
+      ok: boolean;
+      description?: string;
+      result?: {
+        photo?: { file_id: string }[];
+        video?: { file_id: string };
+        document?: { file_id: string };
+      };
+    };
+    if (!data.ok) return { ok: false, error: data.description };
+
+    const fileId =
+      kind === "photo"
+        ? data.result?.photo?.at(-1)?.file_id
+        : kind === "video"
+          ? data.result?.video?.file_id
+          : data.result?.document?.file_id;
+
+    return { ok: true, fileId: fileId ?? media.fileId };
+  } catch (error) {
+    return { ok: false, error: (error as Error).message };
+  }
+}
+
+/**
+ * Загружает картинку в ВК и возвращает строку вложения (photo<owner>_<id>).
+ * Загрузка нужна одна на рассылку — вложение переиспользуется.
+ */
+export async function uploadVkPhoto(
+  token: string,
+  peerId: string,
+  media: { bytes: Buffer; filename?: string; mime?: string },
+): Promise<{ attachment?: string; error?: string }> {
+  try {
+    const serverParams = new URLSearchParams({
+      access_token: token,
+      v: VK_API_VERSION,
+      peer_id: peerId,
+    });
+    const serverRes = await fetch(
+      `https://api.vk.com/method/photos.getMessagesUploadServer?${serverParams}`,
+    );
+    const serverData = (await serverRes.json()) as {
+      response?: { upload_url: string };
+      error?: { error_msg: string };
+    };
+    if (!serverData.response) return { error: serverData.error?.error_msg ?? "ВК не дал адрес загрузки" };
+
+    const form = new FormData();
+    form.append(
+      "photo",
+      new Blob([new Uint8Array(media.bytes)], { type: media.mime || "image/jpeg" }),
+      media.filename || "photo.jpg",
+    );
+    const uploadRes = await fetch(serverData.response.upload_url, { method: "POST", body: form });
+    const uploaded = (await uploadRes.json()) as {
+      server?: number;
+      photo?: string;
+      hash?: string;
+    };
+    if (!uploaded.photo) return { error: "ВК не принял файл" };
+
+    const saveParams = new URLSearchParams({
+      access_token: token,
+      v: VK_API_VERSION,
+      server: String(uploaded.server),
+      photo: uploaded.photo,
+      hash: String(uploaded.hash),
+    });
+    const saveRes = await fetch(`https://api.vk.com/method/photos.saveMessagesPhoto?${saveParams}`);
+    const saved = (await saveRes.json()) as {
+      response?: { id: number; owner_id: number }[];
+      error?: { error_msg: string };
+    };
+    const photo = saved.response?.[0];
+    if (!photo) return { error: saved.error?.error_msg ?? "ВК не сохранил файл" };
+
+    return { attachment: `photo${photo.owner_id}_${photo.id}` };
+  } catch (error) {
+    return { error: (error as Error).message };
+  }
 }
 
 /** Регистрирует webhook в Telegram — кнопка «Подключить» в карточке бота. */
@@ -89,7 +284,7 @@ export async function setTelegramWebhook(
       body: JSON.stringify({
         url,
         secret_token: secretToken,
-        allowed_updates: ["message", "my_chat_member"],
+        allowed_updates: ["message", "my_chat_member", "callback_query"],
         drop_pending_updates: true,
       }),
     });
@@ -177,6 +372,270 @@ export async function getTelegramWebhookInfo(token: string): Promise<{
       pendingUpdateCount: data.result?.pending_update_count,
       lastErrorMessage: data.result?.last_error_message,
     };
+  } catch (error) {
+    return { error: (error as Error).message };
+  }
+}
+
+
+/**
+ * Картинка блока в Telegram: первый раз отправляем по ссылке на наш сервер,
+ * дальше — по file_id, который вернул Telegram.
+ */
+export async function sendTelegramPhotoByRef(
+  bot: Pick<Bot, "token">,
+  chatId: string,
+  photo: string,
+  caption: string,
+  options: { keyboard?: KeyboardButton[]; html?: boolean } = {},
+): Promise<SendResult & { fileId?: string }> {
+  if (!bot.token) return { ok: false, error: "У бота не задан токен" };
+  try {
+    const response = await fetch(`https://api.telegram.org/bot${bot.token}/sendPhoto`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        photo,
+        caption: caption ? caption.slice(0, 1024) : undefined,
+        ...(caption && options.html ? { parse_mode: "HTML" } : {}),
+        reply_markup: options.keyboard?.length
+          ? options.keyboard.some((button) => button.url)
+            ? telegramInlineKeyboard(options.keyboard)
+            : telegramKeyboard(options.keyboard.map((button) => button.label))
+          : TELEGRAM_REMOVE_KEYBOARD,
+      }),
+    });
+    const data = (await response.json()) as {
+      ok: boolean;
+      description?: string;
+      result?: { photo?: { file_id: string }[] };
+    };
+    if (!data.ok) return { ok: false, error: data.description };
+    return { ok: true, fileId: data.result?.photo?.at(-1)?.file_id };
+  } catch (error) {
+    return { ok: false, error: (error as Error).message };
+  }
+}
+
+type VkResponse<T> = { response?: T; error?: { error_msg: string; error_code: number } };
+
+/** Понятные объяснения вместо кодов ВКонтакте. */
+function explainVkError(code: number, message: string): string {
+  switch (code) {
+    case 5:
+      return "Ключ доступа неверный или устарел — создайте новый в настройках сообщества";
+    case 15:
+      return "Ключ не даёт доступа к этому сообществу — проверьте, что создали его в нужном сообществе";
+    case 27:
+    case 28:
+      return "Это ключ приложения, а не сообщества — создайте ключ доступа сообщества";
+    case 100:
+      return "ВКонтакте не принял параметры запроса: " + message;
+    case 203:
+      return "Нет доступа к сообществу — нужен ключ с правом «Управление сообществом»";
+    case 2000:
+      return "У сообщества уже максимум серверов Callback API — удалите лишний в настройках";
+    default:
+      return message;
+  }
+}
+
+/** Общий вызов VK API — все параметры формой, как требует их сервер. */
+async function vkApi<T>(
+  method: string,
+  token: string,
+  params: Record<string, string | number>,
+): Promise<{ data?: T; error?: string }> {
+  try {
+    const body = new URLSearchParams({
+      access_token: token,
+      v: VK_API_VERSION,
+      ...Object.fromEntries(Object.entries(params).map(([key, value]) => [key, String(value)])),
+    });
+
+    const response = await fetch(`https://api.vk.com/method/${method}`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body,
+    });
+    const data = (await response.json()) as VkResponse<T>;
+    if (data.error) {
+      return { error: explainVkError(data.error.error_code, data.error.error_msg) };
+    }
+    return { data: data.response };
+  } catch (error) {
+    return { error: (error as Error).message };
+  }
+}
+
+/** По ключу доступа определяет, какому сообществу он принадлежит. */
+export async function getVkGroupByToken(
+  token: string,
+): Promise<{ id?: string; name?: string; screenName?: string; error?: string }> {
+  const result = await vkApi<{ id: number; name: string; screen_name: string }[]>(
+    "groups.getById",
+    token,
+    {},
+  );
+  if (result.error) return { error: result.error };
+
+  // Ключ сообщества возвращает своё сообщество; у новых версий ответ приходит в groups.
+  const group = Array.isArray(result.data)
+    ? result.data[0]
+    : (result.data as unknown as { groups?: { id: number; name: string; screen_name: string }[] })
+        ?.groups?.[0];
+
+  if (!group) return { error: "ВКонтакте не вернул сообщество для этого ключа" };
+  return { id: String(group.id), name: group.name, screenName: group.screen_name };
+}
+
+export type VkSetupResult = {
+  ok: boolean;
+  groupId?: string;
+  groupName?: string;
+  confirmation?: string;
+  serverId?: number;
+  error?: string;
+};
+
+/**
+ * Полная настройка Callback API за пользователя: узнаём сообщество, берём строку
+ * подтверждения, добавляем сервер и включаем нужные события.
+ * Строку подтверждения нужно сохранить в боте до добавления сервера — ВКонтакте
+ * сразу постучится к нам и будет ждать её в ответе.
+ */
+export async function setupVkCallback(params: {
+  token: string;
+  url: string;
+  secret: string;
+  title: string;
+  onConfirmationReady: (groupId: string, confirmation: string) => Promise<void>;
+}): Promise<VkSetupResult> {
+  const group = await getVkGroupByToken(params.token);
+  if (group.error || !group.id) return { ok: false, error: group.error };
+
+  const code = await vkApi<{ code: string }>("groups.getCallbackConfirmationCode", params.token, {
+    group_id: group.id,
+  });
+  if (code.error || !code.data?.code) {
+    return {
+      ok: false,
+      error: code.error ?? "Не удалось получить строку подтверждения",
+      groupId: group.id,
+      groupName: group.name,
+    };
+  }
+
+  await params.onConfirmationReady(group.id, code.data.code);
+
+  const server = await vkApi<{ server_id: number }>("groups.addCallbackServer", params.token, {
+    group_id: group.id,
+    url: params.url,
+    // ВКонтакте разрешает не больше 14 символов в названии сервера.
+    title: params.title.slice(0, 14),
+    secret_key: params.secret.slice(0, 50),
+  });
+  if (server.error || !server.data?.server_id) {
+    return {
+      ok: false,
+      error: server.error ?? "ВКонтакте не принял адрес сервера",
+      groupId: group.id,
+      groupName: group.name,
+      confirmation: code.data.code,
+    };
+  }
+
+  const settings = await vkApi<number>("groups.setCallbackSettings", params.token, {
+    group_id: group.id,
+    server_id: server.data.server_id,
+    api_version: VK_API_VERSION,
+    message_new: 1,
+    message_allow: 1,
+    message_deny: 1,
+  });
+  if (settings.error) {
+    return {
+      ok: false,
+      error: `Сервер добавлен, но события не включились: ${settings.error}`,
+      groupId: group.id,
+      groupName: group.name,
+      confirmation: code.data.code,
+      serverId: server.data.server_id,
+    };
+  }
+
+  return {
+    ok: true,
+    groupId: group.id,
+    groupName: group.name,
+    confirmation: code.data.code,
+    serverId: server.data.server_id,
+  };
+}
+
+
+/** Гасит «часики» на инлайн-кнопке Telegram. */
+export async function answerCallbackQuery(token: string, callbackId: string): Promise<void> {
+  try {
+    await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ callback_query_id: callbackId }),
+    });
+  } catch {
+    // не критично: кнопка всё равно сработает
+  }
+}
+
+
+/** Загружает документ во ВКонтакте и возвращает строку вложения doc<owner>_<id>. */
+export async function uploadVkDoc(
+  token: string,
+  peerId: string,
+  media: { bytes: Buffer; filename: string; mime?: string },
+): Promise<{ attachment?: string; error?: string }> {
+  try {
+    const serverParams = new URLSearchParams({
+      access_token: token,
+      v: VK_API_VERSION,
+      peer_id: peerId,
+      type: "doc",
+    });
+    const serverRes = await fetch(
+      `https://api.vk.com/method/docs.getMessagesUploadServer?${serverParams}`,
+    );
+    const serverData = (await serverRes.json()) as {
+      response?: { upload_url: string };
+      error?: { error_msg: string };
+    };
+    if (!serverData.response) return { error: serverData.error?.error_msg ?? "ВК не дал адрес загрузки" };
+
+    const form = new FormData();
+    form.append(
+      "file",
+      new Blob([new Uint8Array(media.bytes)], { type: media.mime || "application/octet-stream" }),
+      media.filename,
+    );
+    const uploadRes = await fetch(serverData.response.upload_url, { method: "POST", body: form });
+    const uploaded = (await uploadRes.json()) as { file?: string };
+    if (!uploaded.file) return { error: "ВК не принял файл" };
+
+    const saveParams = new URLSearchParams({
+      access_token: token,
+      v: VK_API_VERSION,
+      file: uploaded.file,
+      title: media.filename,
+    });
+    const saveRes = await fetch(`https://api.vk.com/method/docs.save?${saveParams}`);
+    const saved = (await saveRes.json()) as {
+      response?: { type?: string; doc?: { id: number; owner_id: number } };
+      error?: { error_msg: string };
+    };
+    const doc = saved.response?.doc;
+    if (!doc) return { error: saved.error?.error_msg ?? "ВК не сохранил файл" };
+
+    return { attachment: `doc${doc.owner_id}_${doc.id}` };
   } catch (error) {
     return { error: (error as Error).message };
   }

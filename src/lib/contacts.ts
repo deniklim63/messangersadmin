@@ -1,5 +1,7 @@
 import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
+import type { Attachment } from "@/lib/attachments";
+import { notifyIncoming } from "@/lib/events";
 import { citySlug, cleanName, normalizeEmail, normalizePhone } from "@/lib/normalize";
 
 export type IngestInput = {
@@ -14,6 +16,11 @@ export type IngestInput = {
   phone?: string | null;
   email?: string | null;
   city?: string | null;
+  /**
+   * Не перетирать уже известные данные. Нужно, когда телефон и e-mail
+   * выужены из текста: угадали — записали в пустое поле, но не поверх ручной правки.
+   */
+  fillEmptyOnly?: boolean;
 };
 
 type Tx = Prisma.TransactionClient;
@@ -103,14 +110,22 @@ export async function ingestContact(input: IngestInput) {
 
     const contact = await tx.contact.update({
       where: { id: contactId },
-      data: {
-        // Имя, названное самим человеком, важнее имени из профиля.
-        name: selfName ?? current.name ?? tgName,
-        phone: phone ?? current.phone,
-        phoneRaw: input.phone?.trim() || current.phoneRaw,
-        email: email ?? current.email,
-        cityId: cityId ?? current.cityId,
-      },
+      data: input.fillEmptyOnly
+        ? {
+            name: current.name ?? selfName ?? tgName,
+            phone: current.phone ?? phone,
+            phoneRaw: current.phoneRaw ?? (input.phone?.trim() || null),
+            email: current.email ?? email,
+            cityId: current.cityId ?? cityId,
+          }
+        : {
+            // Имя, названное самим человеком, важнее имени из профиля.
+            name: selfName ?? current.name ?? tgName,
+            phone: phone ?? current.phone,
+            phoneRaw: input.phone?.trim() || current.phoneRaw,
+            email: email ?? current.email,
+            cityId: cityId ?? current.cityId,
+          },
       include: { city: true },
     });
 
@@ -122,6 +137,7 @@ export async function ingestContact(input: IngestInput) {
         firstName: cleanName(input.firstName) ?? undefined,
         lastName: cleanName(input.lastName) ?? undefined,
         status: "ACTIVE",
+        unsubscribedAt: null,
         lastSeenAt: new Date(),
       },
       create: {
@@ -146,9 +162,11 @@ export async function logMessage(params: {
   direction: "IN" | "OUT";
   text: string;
   externalId?: string | null;
+  attachments?: Attachment[];
 }) {
-  if (!params.text.trim()) return null;
-  return prisma.message.create({
+  const attachments = params.attachments ?? [];
+  if (!params.text.trim() && attachments.length === 0) return null;
+  const message = await prisma.message.create({
     data: {
       botId: params.botId,
       subscriberId: params.subscriberId,
@@ -156,6 +174,18 @@ export async function logMessage(params: {
       direction: params.direction,
       text: params.text.slice(0, 4000),
       externalId: params.externalId ?? null,
+      attachments: attachments.length ? JSON.parse(JSON.stringify(attachments)) : undefined,
     },
   });
+
+  // Открытые вкладки узнают о входящем сразу, без ожидания следующего опроса.
+  if (params.direction === "IN" && params.contactId) {
+    notifyIncoming({
+      type: "incoming",
+      subscriberId: params.subscriberId,
+      contactId: params.contactId,
+    });
+  }
+
+  return message;
 }

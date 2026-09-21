@@ -1,6 +1,7 @@
 import { logout } from "@/lib/actions-auth";
 import { requireAuth } from "@/lib/auth";
-import { NavLink } from "@/components/nav-link";
+import { InboxNavLink, NavLink } from "@/components/nav-link";
+import { SoundToggle } from "@/components/sound-toggle";
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   await requireAuth();
@@ -15,11 +16,19 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
         <nav className="mt-4 space-y-1">
           <NavLink href="/">Обзор</NavLink>
+          <InboxNavLink />
           <NavLink href="/contacts">Пользователи</NavLink>
+          <NavLink href="/scenarios">Сценарии</NavLink>
+          <NavLink href="/broadcasts">Рассылки</NavLink>
+          <NavLink href="/analytics">Аналитика</NavLink>
           <NavLink href="/bots">Боты</NavLink>
         </nav>
 
-        <form action={logout} className="mt-auto">
+        <div className="mt-auto">
+          <SoundToggle />
+        </div>
+
+        <form action={logout}>
           <button
             type="submit"
             className="w-full rounded-lg px-3 py-2 text-left text-sm text-[var(--muted)] hover:bg-[var(--bg)]"

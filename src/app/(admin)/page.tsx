@@ -64,15 +64,17 @@ export default async function DashboardPage() {
           ) : (
             <ul className="mt-3 space-y-2">
               {bots.map((bot) => (
-                <li key={bot.id} className="flex items-center justify-between text-sm">
-                  <Link href={`/bots/${bot.id}`} className="hover:text-[var(--accent)]">
-                    {bot.platform === "TELEGRAM" ? "TG" : "ВК"} · {bot.title}
-                  </Link>
+                <li key={bot.id}>
                   <Link
-                    href={`/contacts?bot=${bot.id}`}
-                    className="tabular-nums text-[var(--muted)] hover:text-[var(--accent)]"
+                    href={`/bots/${bot.id}`}
+                    className="-mx-2 flex items-center justify-between rounded-lg px-2 py-1 text-sm hover:bg-[var(--bg)]"
                   >
-                    {bot._count.subscribers}
+                    <span>
+                      {bot.platform === "TELEGRAM" ? "TG" : "ВК"} · {bot.title}
+                    </span>
+                    <span className="tabular-nums text-[var(--muted)]">
+                      {bot._count.subscribers}
+                    </span>
                   </Link>
                 </li>
               ))}
@@ -113,14 +115,17 @@ export default async function DashboardPage() {
         ) : (
           <ul className="mt-3 divide-y divide-[var(--line)]">
             {recent.map((contact) => (
-              <li key={contact.id} className="flex items-center justify-between py-2 text-sm">
-                <Link href={`/contacts/${contact.id}`} className="hover:text-[var(--accent)]">
-                  {contact.name ?? contact.phone ?? contact.email ?? "Без имени"}
+              <li key={contact.id}>
+                <Link
+                  href={`/contacts/${contact.id}`}
+                  className="-mx-2 flex items-center justify-between gap-4 rounded-lg px-2 py-2 text-sm hover:bg-[var(--bg)]"
+                >
+                  <span>{contact.name ?? contact.phone ?? contact.email ?? "Без имени"}</span>
+                  <span className="text-[var(--muted)]">
+                    {contact.city?.name ?? "—"} ·{" "}
+                    {contact.subscribers.map((s) => s.bot.title).join(", ") || "—"}
+                  </span>
                 </Link>
-                <span className="text-[var(--muted)]">
-                  {contact.city?.name ?? "—"} ·{" "}
-                  {contact.subscribers.map((s) => s.bot.title).join(", ") || "—"}
-                </span>
               </li>
             ))}
           </ul>

@@ -9,7 +9,9 @@ import { webhookUrl } from "@/lib/webhook-url";
 import {
   deleteTelegramWebhook,
   getTelegramBotInfo,
+  getVkGroupByToken,
   setTelegramWebhook,
+  setupVkCallback,
 } from "@/lib/platforms";
 
 type FormState = { error?: string; ok?: string };
@@ -22,21 +24,34 @@ export async function createBot(_state: FormState, formData: FormData): Promise<
   if (!title) return { error: "Укажите название" };
 
   let username: string | null = null;
+  let vkGroupId: string | null = String(formData.get("vkGroupId") ?? "").trim() || null;
+  let resolvedTitle = title;
+
   if (platform === "TELEGRAM" && token) {
     const info = await getTelegramBotInfo(token);
     if (!info.ok) return { error: `Telegram не принял токен: ${info.error}` };
     username = info.username ?? null;
   }
 
+  // Для ВКонтакте по ключу сами узнаём сообщество — id и название вводить не нужно.
+  if (platform === "VK" && token) {
+    const group = await getVkGroupByToken(token);
+    if (group.error) return { error: `ВКонтакте не принял ключ: ${group.error}` };
+    vkGroupId = group.id ?? null;
+    username = group.screenName ?? null;
+    if (!formData.get("title") && group.name) resolvedTitle = group.name;
+  }
+
   const bot = await prisma.bot.create({
     data: {
       platform,
-      title,
+      title: resolvedTitle,
       token: token || null,
       username,
-      vkGroupId: String(formData.get("vkGroupId") ?? "").trim() || null,
+      vkGroupId,
       vkConfirmation: String(formData.get("vkConfirmation") ?? "").trim() || null,
       vkSecret: String(formData.get("vkSecret") ?? "").trim() || null,
+      collectSurvey: formData.get("collectSurvey") === "on",
     },
   });
 
@@ -114,4 +129,50 @@ export async function deleteBot(formData: FormData) {
   await prisma.bot.delete({ where: { id } });
   revalidatePath("/bots");
   redirect("/bots");
+}
+
+
+/** Настраивает Callback API сообщества за пользователя: ключа достаточно. */
+export async function connectVk(_state: FormState, formData: FormData): Promise<FormState> {
+  await requireAuth();
+  const id = String(formData.get("id"));
+  const bot = await prisma.bot.findUnique({ where: { id } });
+  if (!bot) return { error: "Бот не найден" };
+  if (bot.platform !== "VK") return { error: "Это не сообщество ВКонтакте" };
+  if (!bot.token) return { error: "Сначала сохраните ключ доступа сообщества" };
+
+  const url = webhookUrl(bot.id, bot.platform);
+  if (url.startsWith("http://")) {
+    return { error: "ВКонтакте принимает только https. Укажите публичный APP_URL." };
+  }
+
+  const result = await setupVkCallback({
+    token: bot.token,
+    url,
+    secret: bot.webhookSecret,
+    title: "Админка",
+    // Строку подтверждения сохраняем до добавления сервера: ВКонтакте проверит адрес сразу.
+    onConfirmationReady: async (groupId, confirmation) => {
+      await prisma.bot.update({
+        where: { id },
+        data: { vkGroupId: groupId, vkConfirmation: confirmation, vkSecret: bot.webhookSecret },
+      });
+    },
+  });
+
+  if (!result.ok) {
+    revalidatePath(`/bots/${id}`);
+    return { error: result.error };
+  }
+
+  await prisma.bot.update({
+    where: { id },
+    data: {
+      vkGroupId: result.groupId ?? bot.vkGroupId,
+      title: bot.title || result.groupName || bot.title,
+    },
+  });
+
+  revalidatePath(`/bots/${id}`);
+  return { ok: `Подключено: ${result.groupName ?? "сообщество"}. События включены.` };
 }

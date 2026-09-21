@@ -1,8 +1,11 @@
 import type { Bot, Contact } from "@/generated/prisma/client";
 import { ingestContact, logMessage } from "@/lib/contacts";
 import { prisma } from "@/lib/db";
+import type { Attachment } from "@/lib/attachments";
+import { extractContactData } from "@/lib/extract";
 import { normalizeEmail, normalizePhone } from "@/lib/normalize";
 import { sendMessage } from "@/lib/platforms";
+import { handleScenarioMessage } from "@/lib/scenario";
 
 export type SurveyStep = "name" | "phone" | "email" | "city" | "done";
 
@@ -57,6 +60,7 @@ type IncomingParams = {
   /** Город из профиля ВК. */
   profileCity?: string | null;
   messageExternalId?: string | null;
+  attachments?: Attachment[];
 };
 
 /**
@@ -83,9 +87,29 @@ export async function handleIncomingMessage(params: IncomingParams) {
     direction: "IN",
     text: params.sharedPhone && !text ? `[контакт] ${params.sharedPhone}` : text,
     externalId: params.messageExternalId,
+    attachments: params.attachments,
   });
 
-  if (!bot.collectSurvey) return { contact, subscriber };
+  // Данные из текста подхватываем всегда — сценарий этому не мешает.
+  const found = extractContactData(text);
+  const enriched =
+    found.phone || found.email
+      ? (
+          await ingestContact({
+            botId: bot.id,
+            externalId,
+            phone: found.phone,
+            email: found.email,
+            fillEmptyOnly: true,
+          })
+        ).contact
+      : contact;
+
+  // Если у бота включён сценарий — диалог ведёт он.
+  const handledByScenario = await handleScenarioMessage({ bot, subscriber, text });
+  if (handledByScenario) return { contact: enriched, subscriber };
+
+  if (!bot.collectSurvey) return { contact: enriched, subscriber };
 
   // Состояние анкеты хранится строкой вида "email|name,phone":
   // текущий вопрос и шаги, которые уже закрыты (отвечены или пропущены).

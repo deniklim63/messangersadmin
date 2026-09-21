@@ -1,0 +1,33 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: tgadmin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: tgadmin
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tgadmin -d tgadmin"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://tgadmin:${POSTGRES_PASSWORD}@postgres:5432/tgadmin?schema=public
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      AUTH_SECRET: ${AUTH_SECRET}
+      APP_URL: ${APP_URL}
+    # Наружу не публикуем — только nginx на хосте ходит в этот порт.
+    ports:
+      - "127.0.0.1:3300:3000"
+
+volumes:
+  pgdata:

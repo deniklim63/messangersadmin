@@ -23,6 +23,24 @@ enum MessageDirection {
   OUT
 }
 
+/// Что делает блок сценария.
+enum BlockKind {
+  /// Сообщение с кнопками — ждёт ответа человека.
+  MESSAGE
+  /// HTTP-запрос к внешнему сервису, выполняется и идёт дальше.
+  REQUEST
+  /// Свой код на JavaScript: считает переменные и идёт дальше.
+  CODE
+  /// Ветвление: сравнивает переменные и выбирает, куда идти.
+  CONDITION
+  /// Пауза перед следующим блоком.
+  DELAY
+  /// Передача диалога живому оператору.
+  HANDOFF
+  /// Вопрос человеку: ответ сохраняется в переменную.
+  INPUT
+}
+
 /// Подключённый бот (Telegram или сообщество ВК).
 model Bot {
   id       String   @id @default(cuid())
@@ -46,12 +64,15 @@ model Bot {
   /// Токен для внешних источников: POST /api/ingest.
   ingestToken String @unique @default(cuid())
 
-  /// Включает встроенную анкету (имя → телефон → email → город).
-  collectSurvey Boolean @default(true)
+  /// Встроенная анкета (имя → телефон → email → город). По умолчанию выключена:
+  /// у чужого бота своя логика, и вмешиваться в диалог нельзя.
+  collectSurvey Boolean @default(false)
 
   subscribers Subscriber[]
   messages    Message[]
   events      WebhookEvent[]
+  broadcasts  Broadcast[]
+  scenarios   Scenario[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -77,6 +98,8 @@ model Contact {
   cityId   String?
   city     City?   @relation(fields: [cityId], references: [id], onDelete: SetNull)
   notes    String?
+  /// Произвольные переменные: то, что посчитал код или вернул запрос.
+  variables Json @default("{}")
 
   subscribers Subscriber[]
   messages    Message[]
@@ -108,7 +131,19 @@ model Subscriber {
   surveyStep String?
 
   lastSeenAt DateTime?
-  messages   Message[]
+  /// Когда человек заблокировал бота или отписался — нужно для графика отписок.
+  unsubscribedAt DateTime?
+  /// До какого момента переписку просмотрели во «Входящих».
+  lastReadAt DateTime?
+  /// Диалог передан живому оператору — бот молчит, пока его не вернут.
+  needsOperator Boolean   @default(false)
+  operatorSince DateTime?
+
+  /// Где человек сейчас находится в сценарии.
+  currentBlockId String?
+  currentBlock   ScenarioBlock? @relation(fields: [currentBlockId], references: [id], onDelete: SetNull)
+  messages       Message[]
+  scheduled      ScheduledStep[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -130,6 +165,9 @@ model Message {
   text         String
   externalId   String?
 
+  /// Вложения: [{ kind, fileId, name, mime, size, url }] — kind: photo | video | file | voice | audio.
+  attachments Json?
+
   createdAt DateTime @default(now())
 
   @@index([subscriberId, createdAt])
@@ -149,4 +187,176 @@ model WebhookEvent {
 
   @@index([botId, createdAt])
   @@index([createdAt])
+}
+
+/// Отправленная рассылка — что именно ушло, кому и с каким результатом.
+model Broadcast {
+  id    String @id @default(cuid())
+  botId String
+  bot   Bot    @relation(fields: [botId], references: [id], onDelete: Cascade)
+
+  /// Текст с разметкой — ровно в том виде, в каком его набрали.
+  text String
+  /// Города-сегменты (slug); пусто — отправляли всем.
+  cities String[]
+
+  mediaKind String?
+  mediaName String?
+
+  recipients Int
+  sent       Int
+  failed     Int
+  /// Список недоставленных: имя и причина.
+  failures Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+/// Сценарий бота: набор экранов с кнопками, как в конструкторе.
+model Scenario {
+  id       String  @id @default(cuid())
+  botId    String
+  bot      Bot     @relation(fields: [botId], references: [id], onDelete: Cascade)
+  title    String
+  isActive Boolean @default(false)
+
+  blocks ScenarioBlock[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([botId])
+}
+
+/// Экран диалога: текст, картинка и кнопки под ним.
+model ScenarioBlock {
+  id         String   @id @default(cuid())
+  scenarioId String
+  scenario   Scenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+
+  kind BlockKind @default(MESSAGE)
+
+  /// Название для редактора, пользователю не показывается.
+  title String
+  text  String
+
+  /// REQUEST: куда и чем стучимся. В url, заголовках и теле работают {{переменные}}.
+  method  String? @default("GET")
+  url     String?
+  headers Json?
+  body    String?
+  /// Имя переменной, в которую ляжет ответ.
+  saveAs String?
+
+  /// CODE: тело функции на JavaScript.
+  code String?
+
+  /// CONDITION: список правил [{ field, operator, value, targetBlockId }].
+  /// Проверяются по порядку, срабатывает первое подходящее.
+  conditions Json?
+
+  /// DELAY: сколько секунд подождать перед следующим блоком.
+  delaySeconds Int?
+
+  /// INPUT: что проверяем в ответе — text, date, phone, email, city.
+  inputKind String?
+  /// INPUT: что ответить, если проверка не прошла (иначе стандартный текст).
+  inputError String?
+
+  /// MESSAGE: вывод списка из переменной — путь к массиву, шаблон строки,
+  /// текст на случай пустого списка и ограничение по количеству.
+  listSource   String?
+  listTemplate String?
+  listEmpty    String?
+  listLimit    Int?
+
+  /// Куда идти после запроса или кода (у сообщений переход задают кнопки).
+  nextBlockId String?
+  nextBlock   ScenarioBlock?  @relation("BlockNext", fields: [nextBlockId], references: [id], onDelete: SetNull)
+  previous    ScenarioBlock[] @relation("BlockNext")
+
+  imageId String?
+  image   MediaFile? @relation(fields: [imageId], references: [id], onDelete: SetNull)
+
+  /// С этого блока начинается диалог.
+  isStart Boolean @default(false)
+  /// Слова, по которым человек попадает сюда из любого места.
+  keywords String[]
+
+  /// Координаты блока на схеме.
+  positionX Int @default(0)
+  positionY Int @default(0)
+
+  /// Точка перегиба для стрелки «дальше».
+  nextWaypointX Int?
+  nextWaypointY Int?
+
+  buttons     ScenarioButton[]
+  incoming    ScenarioButton[] @relation("ButtonTarget")
+  subscribers Subscriber[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([scenarioId])
+}
+
+/// Кнопка под сообщением: подпись и куда ведёт.
+model ScenarioButton {
+  id      String        @id @default(cuid())
+  blockId String
+  block   ScenarioBlock @relation(fields: [blockId], references: [id], onDelete: Cascade)
+
+  label    String
+  position Int    @default(0)
+
+  targetBlockId String?
+  targetBlock   ScenarioBlock? @relation("ButtonTarget", fields: [targetBlockId], references: [id], onDelete: SetNull)
+
+  /// Внешняя ссылка: кнопка открывает сайт вместо перехода по сценарию.
+  url String?
+
+  /// Точка, через которую пользователь провёл линию на схеме.
+  waypointX Int?
+  waypointY Int?
+
+  @@index([blockId])
+}
+
+/// Файлы: картинки блоков сценария и вложения переписки. Держим в базе —
+/// файлы небольшие, зато переезжают вместе с ней.
+model MediaFile {
+  id       String @id @default(cuid())
+  filename String
+  mime     String
+  size     Int
+  data     Bytes
+
+  /// scenario — отдаётся публично (по нему файл забирает Telegram);
+  /// message — только авторизованным, это переписка людей.
+  scope String @default("scenario")
+
+  /// Закэшированные идентификаторы у платформ — чтобы не грузить файл каждый раз.
+  telegramFileId String?
+  vkAttachment   String?
+
+  blocks ScenarioBlock[]
+
+  createdAt DateTime @default(now())
+}
+
+/// Отложенный шаг сценария: блок, который нужно выполнить позже.
+model ScheduledStep {
+  id           String     @id @default(cuid())
+  subscriberId String
+  subscriber   Subscriber @relation(fields: [subscriberId], references: [id], onDelete: Cascade)
+
+  blockId String
+  runAt   DateTime
+
+  createdAt DateTime @default(now())
+
+  @@index([runAt])
 }

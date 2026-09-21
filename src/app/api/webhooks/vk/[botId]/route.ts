@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { collectVkAttachments } from "@/lib/attachments";
 import { prisma } from "@/lib/db";
 import { getVkUserInfo } from "@/lib/platforms";
 import { handleIncomingMessage } from "@/lib/survey";
@@ -8,7 +9,13 @@ type VkEvent = {
   secret?: string;
   group_id?: number;
   object?: {
-    message?: { from_id?: number; text?: string; id?: number; conversation_message_id?: number };
+    message?: {
+      from_id?: number;
+      text?: string;
+      id?: number;
+      conversation_message_id?: number;
+      attachments?: { type: string; [key: string]: unknown }[];
+    };
     // Старый формат message_new — поля лежат прямо в object.
     from_id?: number;
     text?: string;
@@ -50,10 +57,15 @@ export async function POST(
       if (fromId) {
         const externalId = String(fromId);
         const profile = bot.token ? await getVkUserInfo(bot.token, externalId) : {};
+        const attachments = await collectVkAttachments(
+          (message as { attachments?: Parameters<typeof collectVkAttachments>[0] } | undefined)
+            ?.attachments,
+        );
         await handleIncomingMessage({
           bot,
           externalId,
           text: message?.text ?? "",
+          attachments,
           firstName: profile.firstName ?? null,
           lastName: profile.lastName ?? null,
           profileCity: profile.city ?? null,
@@ -63,12 +75,12 @@ export async function POST(
     } else if (event.type === "message_deny" && event.object?.user_id) {
       await prisma.subscriber.updateMany({
         where: { botId: bot.id, externalId: String(event.object.user_id) },
-        data: { status: "BLOCKED" },
+        data: { status: "BLOCKED", unsubscribedAt: new Date() },
       });
     } else if (event.type === "message_allow" && event.object?.user_id) {
       await prisma.subscriber.updateMany({
         where: { botId: bot.id, externalId: String(event.object.user_id) },
-        data: { status: "ACTIVE" },
+        data: { status: "ACTIVE", unsubscribedAt: null },
       });
     }
   } catch (caught) {

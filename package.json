@@ -11,8 +11,7 @@
     "db:down": "docker compose down",
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio",
-    "seed": "tsx prisma/seed.ts",
-    "db:reset": "prisma migrate reset --force && npm run seed"
+    "db:reset": "prisma migrate reset --force"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.10.0",
@@ -32,7 +31,6 @@
     "eslint": "^9",
     "eslint-config-next": "16.3.4",
     "tailwindcss": "^4",
-    "tsx": "^4.23.13",
     "typescript": "^5"
   }
 }

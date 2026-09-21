@@ -46,21 +46,46 @@ export function CreateBotForm() {
       </label>
 
       {platform === "VK" ? (
-        <div className="grid gap-4 sm:grid-cols-3">
-          <label className="block text-sm font-medium">
-            ID сообщества
-            <input name="vkGroupId" className={inputClass} />
-          </label>
-          <label className="block text-sm font-medium">
-            Строка подтверждения
-            <input name="vkConfirmation" className={inputClass} />
-          </label>
-          <label className="block text-sm font-medium">
-            Секретный ключ
-            <input name="vkSecret" className={inputClass} />
-          </label>
+        <div className="rounded-lg bg-[var(--bg)] p-3 text-sm text-[var(--muted)]">
+          <div className="font-medium text-[var(--ink)]">Где взять ключ</div>
+          <ol className="mt-1 list-decimal space-y-0.5 pl-5">
+            <li>Сообщество → Управление → Сообщения: включить сообщения и возможности ботов</li>
+            <li>
+              Управление → <b>Дополнительно</b> → Работа с API → вкладка «Ключи доступа»
+            </li>
+            <li>«Создать ключ»: отметить сообщения сообщества, управление и фотографии</li>
+            <li>Скопировать ключ и вставить в поле выше</li>
+          </ol>
+          <p className="mt-2">
+            Больше ничего искать не нужно: id сообщества, строку подтверждения и адрес сервера
+            админка получит сама.
+          </p>
         </div>
       ) : null}
+
+      <fieldset className="space-y-2 rounded-lg border border-[var(--line)] p-3">
+        <legend className="px-1 text-sm font-medium">Что делает админка</legend>
+        <label className="flex gap-2 text-sm">
+          <input type="radio" name="collectSurvey" value="off" defaultChecked className="mt-0.5" />
+          <span>
+            Только собирает данные
+            <span className="block text-[var(--muted)]">
+              Записывает, кто написал боту, и сохраняет переписку. В диалог не вмешивается —
+              подходит для бота со своей логикой.
+            </span>
+          </span>
+        </label>
+        <label className="flex gap-2 text-sm">
+          <input type="radio" name="collectSurvey" value="on" className="mt-0.5" />
+          <span>
+            Ведёт анкету
+            <span className="block text-[var(--muted)]">
+              Бот сам спросит имя, телефон, e-mail и город. Включайте только для бота,
+              у которого нет своей логики, иначе ответы будут перебивать друг друга.
+            </span>
+          </span>
+        </label>
+      </fieldset>
 
       {state?.error ? <p className="text-sm text-red-600">{state.error}</p> : null}
 

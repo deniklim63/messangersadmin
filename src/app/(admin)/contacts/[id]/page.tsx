@@ -1,6 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ContactForm } from "@/components/contact-form";
+import { MessageThread } from "@/components/message-thread";
+import type { Attachment } from "@/lib/attachments";
+import { SendToContactForm } from "@/components/send-message-form";
 import { deleteContact } from "@/lib/actions-contacts";
 import { prisma } from "@/lib/db";
 
@@ -19,7 +22,7 @@ export default async function ContactPage({ params }: { params: Promise<{ id: st
     include: {
       city: true,
       subscribers: { include: { bot: true }, orderBy: { createdAt: "asc" } },
-      messages: { orderBy: { createdAt: "desc" }, take: 30, include: { bot: true } },
+      messages: { orderBy: { createdAt: "desc" }, take: 50, include: { bot: true } },
     },
   });
   if (!contact) notFound();
@@ -73,28 +76,36 @@ export default async function ContactPage({ params }: { params: Promise<{ id: st
       </section>
 
       <section className="rounded-2xl border border-[var(--line)] bg-white p-5">
+        <h2 className="text-sm font-semibold">Написать</h2>
+        <SendToContactForm
+          targets={contact.subscribers
+            .filter((sub) => sub.status === "ACTIVE")
+            .map((sub) => ({
+              subscriberId: sub.id,
+              label: `${sub.bot.platform === "TELEGRAM" ? "Telegram" : "ВКонтакте"} · ${sub.bot.title}`,
+            }))}
+        />
+      </section>
+
+      <section className="rounded-2xl border border-[var(--line)] bg-white p-5">
         <h2 className="text-sm font-semibold">Переписка</h2>
-        {contact.messages.length === 0 ? (
-          <p className="mt-3 text-sm text-[var(--muted)]">Сообщений пока нет.</p>
-        ) : (
-          <ul className="mt-3 space-y-2">
-            {contact.messages.map((message) => (
-              <li
-                key={message.id}
-                className={`max-w-[80%] rounded-xl px-3 py-2 text-sm ${
-                  message.direction === "IN"
-                    ? "bg-[var(--bg)]"
-                    : "ml-auto bg-blue-50 text-blue-900"
-                }`}
-              >
-                <div className="whitespace-pre-wrap">{message.text}</div>
-                <div className="mt-1 text-xs text-[var(--muted)]">
-                  {message.bot.title} · {message.createdAt.toLocaleString("ru-RU")}
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
+        <p className="mt-1 text-xs text-[var(--muted)]">
+          Видно то, что прошло через админку. Входящие приходят только при подключённом
+          webhook, а ответы бота из другого приложения Telegram нам не пересылает.
+        </p>
+        <MessageThread
+          contactId={contact.id}
+          initialMessages={contact.messages.map((message) => ({
+            id: message.id,
+            direction: message.direction,
+            text: message.text,
+            botTitle: message.bot.title,
+            createdAt: message.createdAt.toISOString(),
+            attachments: Array.isArray(message.attachments)
+              ? (message.attachments as Attachment[])
+              : [],
+          }))}
+        />
       </section>
     </div>
   );

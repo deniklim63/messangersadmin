@@ -67,12 +67,20 @@ export default async function ContactsPage({
           <h1 className="text-2xl font-semibold">Пользователи</h1>
           <p className="text-sm text-[var(--muted)]">Найдено: {total}</p>
         </div>
-        <Link
-          href={`/api/contacts/export${filtersToQuery(filters)}`}
-          className="rounded-lg border border-[var(--line)] bg-white px-4 py-2 text-sm hover:border-[var(--accent)]"
-        >
-          Выгрузить CSV
-        </Link>
+        <div className="flex gap-2">
+          <Link
+            href="/contacts/import"
+            className="rounded-lg border border-[var(--line)] bg-white px-4 py-2 text-sm hover:border-[var(--accent)]"
+          >
+            Импорт CSV
+          </Link>
+          <Link
+            href={`/api/contacts/export${filtersToQuery(filters)}`}
+            className="rounded-lg border border-[var(--line)] bg-white px-4 py-2 text-sm hover:border-[var(--accent)]"
+          >
+            Выгрузить CSV
+          </Link>
+        </div>
       </header>
 
       <form className="flex flex-wrap items-center gap-2 rounded-2xl border border-[var(--line)] bg-white p-4">
@@ -138,10 +146,10 @@ export default async function ContactsPage({
           <tbody className="divide-y divide-[var(--line)]">
             {contacts.map((contact) => (
               <tr key={contact.id} className="hover:bg-[var(--bg)]">
-                <td className="px-4 py-3">
+                <td className="p-0">
                   <Link
                     href={`/contacts/${contact.id}`}
-                    className="font-medium hover:text-[var(--accent)]"
+                    className="block px-4 py-3 font-medium hover:text-[var(--accent)]"
                   >
                     {contact.name ?? "Без имени"}
                   </Link>

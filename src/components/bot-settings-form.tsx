@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
-import { connectTelegram, disconnectTelegram, updateBot } from "@/lib/actions-bots";
+import { connectTelegram, connectVk, disconnectTelegram, updateBot } from "@/lib/actions-bots";
 
 type Bot = {
   id: string;
@@ -44,6 +44,9 @@ export function BotSettingsForm({ bot }: { bot: Bot }) {
           <label className="block text-sm font-medium">
             ID сообщества
             <input name="vkGroupId" defaultValue={bot.vkGroupId ?? ""} className={inputClass} />
+            <span className="mt-1 block text-xs font-normal text-[var(--muted)]">
+              заполнится само
+            </span>
           </label>
           <label className="block text-sm font-medium">
             Строка подтверждения
@@ -67,9 +70,13 @@ export function BotSettingsForm({ bot }: { bot: Bot }) {
         </label>
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" name="collectSurvey" defaultChecked={bot.collectSurvey} />
-          Спрашивать имя, телефон, e-mail и город
+          Вести анкету (бот сам спросит имя, телефон, e-mail и город)
         </label>
       </div>
+      <p className="text-xs text-[var(--muted)]">
+        Если у бота есть своя логика, анкету включать не нужно: админка и так запишет всех,
+        кто написал боту, и сохранит переписку.
+      </p>
 
       <div className="flex items-center gap-3">
         <button
@@ -124,5 +131,29 @@ export function TelegramWebhookButtons({ botId }: { botId: string }) {
         <span className={`text-sm ${isError ? "text-red-600" : "text-green-700"}`}>{message}</span>
       ) : null}
     </div>
+  );
+}
+
+
+/** Автоматическая настройка Callback API у сообщества ВКонтакте. */
+export function VkConnectButton({ botId }: { botId: string }) {
+  const [state, formAction, pending] = useActionState(connectVk, {} as {
+    error?: string;
+    ok?: string;
+  });
+
+  return (
+    <form action={formAction} className="flex flex-wrap items-center gap-3">
+      <input type="hidden" name="id" value={botId} />
+      <button
+        type="submit"
+        disabled={pending}
+        className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+      >
+        {pending ? "Настраиваю…" : "Подключить автоматически"}
+      </button>
+      {state.error ? <span className="text-sm text-red-600">{state.error}</span> : null}
+      {state.ok ? <span className="text-sm text-green-700">{state.ok}</span> : null}
+    </form>
   );
 }
