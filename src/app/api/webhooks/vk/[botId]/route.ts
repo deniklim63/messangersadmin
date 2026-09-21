@@ -11,6 +11,7 @@ type VkEvent = {
   object?: {
     message?: {
       from_id?: number;
+      peer_id?: number;
       text?: string;
       id?: number;
       conversation_message_id?: number;
@@ -54,7 +55,11 @@ export async function POST(
     if (event.type === "message_new") {
       const message = event.object?.message ?? event.object;
       const fromId = message?.from_id ?? event.object?.user_id;
-      if (fromId) {
+      // Беседы сообщества (peer_id от 2 000 000 000) и сообщения самого сообщества
+      // пропускаем: бот ведёт только личные диалоги, иначе он отвечает во «флудилке».
+      const peerId = (message as { peer_id?: number } | undefined)?.peer_id ?? fromId;
+      const isPrivate = Boolean(fromId) && fromId! > 0 && peerId === fromId;
+      if (fromId && isPrivate) {
         const externalId = String(fromId);
         const profile = bot.token ? await getVkUserInfo(bot.token, externalId) : {};
         const attachments = await collectVkAttachments(

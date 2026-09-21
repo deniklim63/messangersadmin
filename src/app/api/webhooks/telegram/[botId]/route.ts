@@ -23,7 +23,7 @@ type TelegramUpdate = {
   message?: {
     message_id?: number;
     from?: TelegramUser;
-    chat?: { id: number };
+    chat?: { id: number; type?: string };
     text?: string;
     caption?: string;
     contact?: { phone_number?: string };
@@ -95,7 +95,11 @@ export async function POST(
           lastSeenAt: new Date(),
         },
       });
-    } else if (update.message?.chat?.id) {
+    } else if (
+      update.message?.chat?.id &&
+      (update.message.chat.type ?? "private") === "private"
+    ) {
+      // Группы и каналы не трогаем — бот работает только в личке.
       // Фото, файлы, видео и голосовые скачиваем к себе, чтобы их было видно в переписке.
       const attachments = bot.token
         ? await collectTelegramAttachments(bot.token, update.message)

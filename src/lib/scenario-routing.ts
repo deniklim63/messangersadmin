@@ -25,12 +25,13 @@ export function resolveTarget<T extends RoutingBlock>(
 
   if (!needle) return current ? null : startBlock;
 
-  return (
-    resolveExplicit(blocks, current, needle, startBlock) ??
-    // 5. Не поняли: новичку показываем начало, остальным — повторяем текущий экран.
-    current ??
-    startBlock
-  );
+  const explicit = resolveExplicit(blocks, current, needle, startBlock);
+  if (explicit) return explicit;
+
+  // 5. Не поняли. Новичку показываем начало, а тому, кто уже в диалоге, не отвечаем:
+  // повтор текущего экрана выглядел как спам, а свободный текст всё равно
+  // попадает во «Входящие» — его увидит оператор.
+  return current ? null : startBlock;
 }
 
 /**

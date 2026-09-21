@@ -70,6 +70,16 @@ type IncomingParams = {
 export async function handleIncomingMessage(params: IncomingParams) {
   const { bot, externalId, text } = params;
 
+  // Платформа может прислать одно и то же сообщение повторно (ВК — если не успели
+  // ответить «ok»). Второй раз его не обрабатываем, иначе бот ответит дважды.
+  if (params.messageExternalId) {
+    const seen = await prisma.message.findFirst({
+      where: { botId: bot.id, direction: "IN", externalId: params.messageExternalId },
+      select: { id: true },
+    });
+    if (seen) return null;
+  }
+
   const { contact, subscriber } = await ingestContact({
     botId: bot.id,
     externalId,
