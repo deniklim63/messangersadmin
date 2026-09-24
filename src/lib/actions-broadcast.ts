@@ -2,20 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { requireAuth } from "@/lib/auth";
-import { logMessage } from "@/lib/contacts";
+import { deliverBroadcast } from "@/lib/broadcast-delivery";
 import { prisma } from "@/lib/db";
-import {
-  isBlankMessage,
-  TELEGRAM_CAPTION_LIMIT,
-  toPlainText,
-  toTelegramHtml,
-} from "@/lib/message-format";
-import {
-  sendMessage,
-  sendTelegramMedia,
-  uploadVkPhoto,
-  type MediaKind,
-} from "@/lib/platforms";
+import { isBlankMessage } from "@/lib/message-format";
+import type { MediaKind } from "@/lib/platforms";
 import { recipientsWhere } from "@/lib/recipients";
 
 export type BroadcastState = {
@@ -26,6 +16,17 @@ export type BroadcastState = {
 
 const MAX_PHOTO_BYTES = 10 * 1024 * 1024;
 const MAX_VIDEO_BYTES = 45 * 1024 * 1024;
+const MAX_DELAY_DAYS = 60;
+
+function formatWhen(date: Date): string {
+  return date.toLocaleString("ru-RU", {
+    timeZone: "Europe/Moscow",
+    day: "numeric",
+    month: "long",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
 export async function sendBroadcast(
   _state: BroadcastState,
@@ -36,12 +37,26 @@ export async function sendBroadcast(
   const botId = String(formData.get("botId") ?? "");
   const cities = formData.getAll("city").map(String).filter(Boolean);
   const raw = String(formData.get("text") ?? "").trim();
+  // Время приходит уже в UTC (ISO) — браузер перевёл из местного.
+  const scheduledRaw = String(formData.get("scheduledAt") ?? "").trim();
 
   if (!botId) return { error: "Выберите бота" };
 
   const bot = await prisma.bot.findUnique({ where: { id: botId } });
   if (!bot) return { error: "Бот не найден" };
   if (!bot.token) return { error: "У бота не задан токен" };
+
+  let scheduledAt: Date | null = null;
+  if (scheduledRaw) {
+    scheduledAt = new Date(scheduledRaw);
+    if (Number.isNaN(scheduledAt.getTime())) return { error: "Не понял дату отправки" };
+    if (scheduledAt.getTime() < Date.now() - 60_000) {
+      return { error: "Это время уже прошло — выберите будущее или очистите поле" };
+    }
+    if (scheduledAt.getTime() > Date.now() + MAX_DELAY_DAYS * 86_400_000) {
+      return { error: `Отложить можно не больше чем на ${MAX_DELAY_DAYS} дней` };
+    }
+  }
 
   // Медиа
   const file = formData.get("media");
@@ -72,111 +87,59 @@ export async function sendBroadcast(
 
   if (!media && isBlankMessage(raw)) return { error: "Введите текст или приложите файл" };
 
-  const subscribers = await prisma.subscriber.findMany({
-    where: recipientsWhere(botId, cities),
-    include: { contact: true },
-    orderBy: { createdAt: "asc" },
-  });
-  if (subscribers.length === 0) return { error: "Под выбор не попал ни один получатель" };
+  const recipients = await prisma.subscriber.count({ where: recipientsWhere(botId, cities) });
+  if (recipients === 0) return { error: "Под выбор не попал ни один получатель" };
 
-  const html = toTelegramHtml(raw);
-  const plain = toPlainText(raw);
-  // Подпись к медиа в Telegram ограничена 1024 символами — длинный текст шлём отдельно.
-  const captionFits = plain.length <= TELEGRAM_CAPTION_LIMIT;
+  const stored = media
+    ? await prisma.mediaFile.create({
+        data: {
+          filename: media.filename,
+          mime: media.mime,
+          size: media.bytes.length,
+          data: new Uint8Array(media.bytes),
+          scope: "broadcast",
+        },
+      })
+    : null;
 
-  let sent = 0;
-  const failures: { name: string; reason: string }[] = [];
-  let telegramFileId: string | undefined;
-  let vkAttachment: string | undefined;
-
-  for (const subscriber of subscribers) {
-    const name =
-      subscriber.contact.name ??
-      subscriber.username ??
-      subscriber.contact.phone ??
-      subscriber.externalId;
-
-    let error: string | undefined;
-
-    if (media && bot.platform === "TELEGRAM") {
-      const result = await sendTelegramMedia(
-        bot,
-        subscriber.externalId,
-        media.kind,
-        { fileId: telegramFileId, bytes: media.bytes, filename: media.filename, mime: media.mime },
-        captionFits ? html : "",
-        { html: true },
-      );
-      if (result.ok) telegramFileId = result.fileId ?? telegramFileId;
-      error = result.ok ? undefined : result.error;
-
-      if (!error && !captionFits && plain) {
-        const rest = await sendMessage(bot, subscriber.externalId, html, { html: true });
-        error = rest.ok ? undefined : rest.error;
-      }
-    } else if (media && bot.platform === "VK") {
-      if (!vkAttachment) {
-        const uploaded = await uploadVkPhoto(bot.token, subscriber.externalId, media);
-        if (uploaded.error) return { error: `ВК не принял картинку: ${uploaded.error}` };
-        vkAttachment = uploaded.attachment;
-      }
-      const result = await sendMessage(bot, subscriber.externalId, plain, {
-        attachment: vkAttachment,
-      });
-      error = result.ok ? undefined : result.error;
-    } else {
-      const result = await sendMessage(
-        bot,
-        subscriber.externalId,
-        bot.platform === "TELEGRAM" ? html : plain,
-        { html: bot.platform === "TELEGRAM" },
-      );
-      error = result.ok ? undefined : result.error;
-    }
-
-    if (error) {
-      failures.push({ name, reason: error });
-      // Заблокировавших бота помечаем, чтобы не долбиться в них следующей рассылкой.
-      if (/blocked|deactivated|kicked/i.test(error)) {
-        await prisma.subscriber.update({
-          where: { id: subscriber.id },
-          data: { status: "BLOCKED", unsubscribedAt: new Date() },
-        });
-      }
-    } else {
-      sent += 1;
-      const mark = media ? (media.kind === "photo" ? "[картинка] " : "[видео] ") : "";
-      await logMessage({
-        botId: bot.id,
-        subscriberId: subscriber.id,
-        contactId: subscriber.contactId,
-        direction: "OUT",
-        text: `${mark}${plain}`.trim(),
-      });
-    }
-
-    // Telegram разрешает ~30 сообщений в секунду — держимся ниже лимита.
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-
-  // Сохраняем саму рассылку — чтобы потом посмотреть, что именно уходило.
-  await prisma.broadcast.create({
+  const broadcast = await prisma.broadcast.create({
     data: {
       botId: bot.id,
       text: raw,
       cities,
       mediaKind: media?.kind ?? null,
       mediaName: media?.filename ?? null,
-      recipients: subscribers.length,
-      sent,
-      failed: failures.length,
-      failures: failures.length ? failures : undefined,
+      mediaId: stored?.id ?? null,
+      status: scheduledAt ? "SCHEDULED" : "SENDING",
+      scheduledAt,
+      recipients,
     },
   });
 
+  if (scheduledAt) {
+    revalidatePath("/broadcasts");
+    return { ok: `Запланировано на ${formatWhen(scheduledAt)} (Москва), получателей: ${recipients}` };
+  }
+
+  const result = await deliverBroadcast(broadcast.id);
   revalidatePath("/broadcasts");
+  if (!result.ok) return { error: result.error };
   return {
-    ok: `Отправлено: ${sent} из ${subscribers.length}`,
-    failures: failures.slice(0, 10),
+    ok: `Отправлено: ${result.sent} из ${result.recipients}`,
+    failures: result.failures.slice(0, 10),
   };
+}
+
+/** Снимает запланированную рассылку — пока она не начала уходить. */
+export async function cancelBroadcast(formData: FormData): Promise<void> {
+  await requireAuth();
+  const id = String(formData.get("id") ?? "");
+  const broadcast = await prisma.broadcast.findUnique({ where: { id } });
+  if (!broadcast || broadcast.status !== "SCHEDULED") return;
+
+  await prisma.broadcast.delete({ where: { id } });
+  if (broadcast.mediaId) {
+    await prisma.mediaFile.delete({ where: { id: broadcast.mediaId } }).catch(() => null);
+  }
+  revalidatePath("/broadcasts");
 }

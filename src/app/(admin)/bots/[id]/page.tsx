@@ -5,7 +5,7 @@ import { CopyField } from "@/components/copy-field";
 import { SendTestForm } from "@/components/send-message-form";
 import { deleteBot } from "@/lib/actions-bots";
 import { prisma } from "@/lib/db";
-import { getTelegramWebhookInfo } from "@/lib/platforms";
+import { getTelegramWebhookInfo, getVkTokenPermissions } from "@/lib/platforms";
 import { webhookUrl } from "@/lib/webhook-url";
 
 export const dynamic = "force-dynamic";
@@ -25,6 +25,8 @@ export default async function BotPage({ params }: { params: Promise<{ id: string
   const info =
     bot.platform === "TELEGRAM" && bot.token ? await getTelegramWebhookInfo(bot.token) : null;
   const connected = info?.url === url;
+  const vkPermissions =
+    bot.platform === "VK" && bot.token ? await getVkTokenPermissions(bot.token) : null;
 
   return (
     <div className="max-w-4xl space-y-6">
@@ -84,6 +86,13 @@ export default async function BotPage({ params }: { params: Promise<{ id: string
                 в Callback API, подтвердит его и включит события. Вручную ничего искать не нужно.
               </p>
               <VkConnectButton botId={bot.id} />
+              {vkPermissions && !vkPermissions.includes("photos") ? (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                  У ключа нет права «Фотографии» — картинки в рассылках и сценариях не
+                  уйдут. Создайте новый ключ (Управление → Дополнительно → Работа с API →
+                  Ключи доступа), отметив «Фотографии», и вставьте его в настройках ниже.
+                </div>
+              ) : null}
               <div className="rounded-lg bg-[var(--bg)] p-3 text-sm">
                 {!bot.token
                   ? "Ключ доступа не задан — добавьте его в настройках ниже"

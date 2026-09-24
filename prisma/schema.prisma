@@ -202,16 +202,25 @@ model Broadcast {
 
   mediaKind String?
   mediaName String?
+  /// Сам файл — нужен, чтобы отложенная рассылка ушла без открытой вкладки.
+  mediaId String?
+  media   MediaFile? @relation(fields: [mediaId], references: [id], onDelete: SetNull)
 
-  recipients Int
-  sent       Int
-  failed     Int
+  /// SCHEDULED — ждёт своего часа, SENDING — уходит, DONE — отправлена.
+  status      String    @default("DONE")
+  scheduledAt DateTime?
+  sentAt      DateTime?
+
+  recipients Int @default(0)
+  sent       Int @default(0)
+  failed     Int @default(0)
   /// Список недоставленных: имя и причина.
   failures Json?
 
   createdAt DateTime @default(now())
 
   @@index([createdAt])
+  @@index([status, scheduledAt])
 }
 
 /// Сценарий бота: набор экранов с кнопками, как в конструкторе.
@@ -342,7 +351,8 @@ model MediaFile {
   telegramFileId String?
   vkAttachment   String?
 
-  blocks ScenarioBlock[]
+  blocks     ScenarioBlock[]
+  broadcasts Broadcast[]
 
   createdAt DateTime @default(now())
 }

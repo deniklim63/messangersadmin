@@ -23,6 +23,14 @@ export default async function BroadcastPage({ params }: { params: Promise<{ id: 
   );
 
   const failures = (broadcast.failures as Failure[] | null) ?? [];
+  const moscow = (date: Date) =>
+    date.toLocaleString("ru-RU", {
+      timeZone: "Europe/Moscow",
+      day: "numeric",
+      month: "long",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
 
   return (
     <div className="max-w-3xl space-y-6">
@@ -32,7 +40,12 @@ export default async function BroadcastPage({ params }: { params: Promise<{ id: 
         </Link>
         <h1 className="mt-1 text-2xl font-semibold">Рассылка</h1>
         <p className="text-sm text-[var(--muted)]">
-          {broadcast.bot.title} · {broadcast.createdAt.toLocaleString("ru-RU")}
+          {broadcast.bot.title} ·{" "}
+          {broadcast.status === "SCHEDULED"
+            ? `запланирована на ${moscow(broadcast.scheduledAt ?? broadcast.createdAt)} (Москва)`
+            : broadcast.status === "SENDING"
+              ? "отправляется…"
+              : `отправлена ${moscow(broadcast.sentAt ?? broadcast.createdAt)} (Москва)`}
         </p>
       </header>
 
@@ -59,10 +72,22 @@ export default async function BroadcastPage({ params }: { params: Promise<{ id: 
             : ""}
         </div>
 
-        <div
-          className="mt-3 whitespace-pre-wrap rounded-lg bg-[var(--bg)] p-4 text-sm [&_a]:text-[var(--accent)] [&_a]:underline"
-          dangerouslySetInnerHTML={{ __html: toTelegramHtml(broadcast.text) }}
-        />
+        <div className="mt-3 max-w-sm overflow-hidden rounded-2xl rounded-tl-sm border border-[var(--line)] bg-[var(--bg)]">
+          {broadcast.mediaId ? (
+            broadcast.mediaKind === "video" ? (
+              <video src={`/api/files/${broadcast.mediaId}`} controls className="block max-h-72 w-full bg-black" />
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={`/api/files/${broadcast.mediaId}`} alt="" className="block max-h-72 w-full object-cover" />
+            )
+          ) : null}
+          {broadcast.text.trim() ? (
+            <div
+              className="whitespace-pre-wrap p-4 text-sm [&_a]:text-[var(--accent)] [&_a]:underline"
+              dangerouslySetInnerHTML={{ __html: toTelegramHtml(broadcast.text) }}
+            />
+          ) : null}
+        </div>
 
         <details className="mt-3 text-xs text-[var(--muted)]">
           <summary className="cursor-pointer">Исходный текст с разметкой</summary>

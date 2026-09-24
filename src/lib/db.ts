@@ -7,7 +7,9 @@ function createClient(): PrismaClient {
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) throw new Error("DATABASE_URL не задан в .env");
   const client = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
-  if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = client;
+  // Один клиент на процесс — и в проде тоже: иначе каждый запрос открывал
+  // свой пул соединений, и Postgres упирался в «too many clients».
+  globalForPrisma.prisma = client;
   return client;
 }
 

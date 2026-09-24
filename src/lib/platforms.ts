@@ -326,6 +326,30 @@ export async function getTelegramBotInfo(
   }
 }
 
+/** Права ключа сообщества — чтобы заранее предупредить, что картинки не уйдут. */
+export async function getVkTokenPermissions(token: string): Promise<string[] | null> {
+  try {
+    const params = new URLSearchParams({ access_token: token, v: VK_API_VERSION });
+    const res = await fetch(`https://api.vk.com/method/groups.getTokenPermissions?${params}`);
+    const data = (await res.json()) as { response?: { permissions?: { name: string }[] } };
+    return data.response?.permissions?.map((item) => item.name) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Понятное объяснение отказа ВК при загрузке картинки. */
+export function explainVkUploadError(error: string): string {
+  if (/access denied|scopes|permission/i.test(error)) {
+    return (
+      "у ключа сообщества нет права «Фотографии». Создайте новый ключ " +
+      "(Управление → Дополнительно → Работа с API → Ключи доступа), отметив «Фотографии», " +
+      "и вставьте его в настройках бота"
+    );
+  }
+  return error;
+}
+
 /** Подтягивает имя и город пользователя ВК по его id. */
 export async function getVkUserInfo(
   token: string,

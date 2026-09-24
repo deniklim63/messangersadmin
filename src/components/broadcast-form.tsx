@@ -38,6 +38,26 @@ export function BroadcastForm({
   const textRef = useRef<HTMLTextAreaElement>(null);
   const [text, setText] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  // Местное время из поля — в ISO (UTC) для сервера.
+  const [when, setWhen] = useState("");
+  const [scheduleInvalid, setScheduleInvalid] = useState(false);
+  const scheduledIso = when ? new Date(when).toISOString() : "";
+
+  function pickWhen(value: string) {
+    setWhen(value);
+    setScheduleInvalid(Boolean(value) && new Date(value).getTime() < Date.now());
+  }
+
+  /** Меняет файл и обновляет предпросмотр; старый object URL освобождаем сразу. */
+  function pickFile(next: File | null) {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setFile(next);
+    setPreviewUrl(next ? URL.createObjectURL(next) : null);
+  }
+
+  const isVideo = file?.type.startsWith("video/") ?? false;
+  const showPreview = Boolean(text.trim() || file);
 
   const selectedBot = bots.find((bot) => bot.id === botId);
   const isVk = selectedBot?.platform === "VK";
@@ -75,7 +95,8 @@ export function BroadcastForm({
       action={async (formData) => {
         await formAction(formData);
         setText("");
-        setFile(null);
+        pickFile(null);
+        pickWhen("");
         formRef.current?.reset();
       }}
       className="space-y-5"
@@ -183,16 +204,6 @@ export function BroadcastForm({
         ) : null}
       </div>
 
-      {text.trim() ? (
-        <div>
-          <div className="text-sm font-medium">Предпросмотр</div>
-          <div
-            className="mt-1 whitespace-pre-wrap rounded-lg border border-[var(--line)] bg-[var(--bg)] p-3 text-sm [&_a]:text-[var(--accent)] [&_a]:underline"
-            dangerouslySetInnerHTML={{ __html: toTelegramHtml(text) }}
-          />
-        </div>
-      ) : null}
-
       <div>
         <label className="block text-sm font-medium">
           Картинка или видео
@@ -200,7 +211,7 @@ export function BroadcastForm({
             type="file"
             name="media"
             accept="image/*,video/*"
-            onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+            onChange={(event) => pickFile(event.target.files?.[0] ?? null)}
             className="mt-1 block w-full text-sm file:mr-3 file:rounded-lg file:border file:border-[var(--line)] file:bg-white file:px-3 file:py-2 file:text-sm"
           />
         </label>
@@ -211,13 +222,61 @@ export function BroadcastForm({
         </p>
       </div>
 
+      {showPreview ? (
+        <div>
+          <div className="text-sm font-medium">Так увидит подписчик</div>
+          <div className="mt-1 max-w-sm overflow-hidden rounded-2xl rounded-tl-sm border border-[var(--line)] bg-white shadow-sm">
+            {previewUrl ? (
+              isVideo ? (
+                <video src={previewUrl} controls className="block max-h-72 w-full bg-black" />
+              ) : (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={previewUrl} alt="" className="block max-h-72 w-full object-cover" />
+              )
+            ) : null}
+            {text.trim() ? (
+              <div
+                className="whitespace-pre-wrap p-3 text-sm [&_a]:text-[var(--accent)] [&_a]:underline"
+                dangerouslySetInnerHTML={{ __html: toTelegramHtml(text) }}
+              />
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      <div>
+        <label className="block text-sm font-medium">
+          Отправить позже
+          <input
+            type="datetime-local"
+            value={when}
+            onChange={(event) => pickWhen(event.target.value)}
+            className={`mt-1 ${controlClass} sm:max-w-xs`}
+          />
+        </label>
+        <input type="hidden" name="scheduledAt" value={scheduledIso} />
+        <p className="mt-1 text-xs text-[var(--muted)]">
+          {when
+            ? scheduleInvalid
+              ? "Это время уже прошло"
+              : "Уйдёт само в назначенное время — вкладку держать открытой не нужно. Время по вашим часам."
+            : "Пусто — отправим сразу."}
+        </p>
+      </div>
+
       <div className="flex flex-wrap items-center gap-3">
         <button
           type="submit"
-          disabled={pending || recipients === 0}
+          disabled={pending || recipients === 0 || scheduleInvalid}
           className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
         >
-          {pending ? "Отправляю…" : `Отправить (${recipients})`}
+          {pending
+            ? when
+              ? "Планирую…"
+              : "Отправляю…"
+            : when
+              ? `Запланировать (${recipients})`
+              : `Отправить (${recipients})`}
         </button>
         {state.error ? <span className="text-sm text-red-600">{state.error}</span> : null}
         {state.ok ? <span className="text-sm text-green-700">{state.ok}</span> : null}
