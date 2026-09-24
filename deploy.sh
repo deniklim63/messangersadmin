@@ -23,6 +23,10 @@ for file in $(grep -rl '"use server"' src); do
   fi
 done
 
+# Собираем здесь, а не на сервере: у VPS 1 vCPU и 2 ГБ, сборка Next.js его вешает.
+echo "→ Собираю образ (linux/amd64)"
+docker buildx build --platform linux/amd64 -t tg-admin-app:latest --load .
+
 echo "→ Заливаю код на $SERVER"
 rsync -az --delete \
   --exclude node_modules \
@@ -32,10 +36,16 @@ rsync -az --delete \
   --exclude src/generated \
   -e ssh ./ "$SERVER:$REMOTE_DIR/"
 
-echo "→ Пересобираю и перезапускаю"
-ssh "$SERVER" "cd $REMOTE_DIR && docker compose -f docker-compose.prod.yml up -d --build && docker image prune -f >/dev/null"
+echo "→ Заливаю образ"
+docker save tg-admin-app:latest | gzip | ssh "$SERVER" "gunzip | docker load"
+
+echo "→ Перезапускаю"
+ssh "$SERVER" "cd $REMOTE_DIR && docker compose -f docker-compose.prod.yml up -d --no-build && docker image prune -f >/dev/null"
 
 echo "→ Проверяю"
-sleep 5
-curl -s -o /dev/null -w "https://bots-admin.157.230.30.28.sslip.io/login → %{http_code}\n" \
-  https://bots-admin.157.230.30.28.sslip.io/login
+for _ in $(seq 1 40); do
+  code=$(curl -s -m 5 -o /dev/null -w "%{http_code}" https://bots-admin.157.230.30.28.sslip.io/login || true)
+  [ "$code" = "200" ] && break
+  sleep 3
+done
+echo "https://bots-admin.157.230.30.28.sslip.io/login → $code"

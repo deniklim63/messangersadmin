@@ -100,7 +100,7 @@ export async function deliverBroadcast(broadcastId: string): Promise<DeliveryRes
           mime: media.mime,
         });
         if (uploaded.error || !uploaded.attachment) {
-          fatal = `ВК не принял картинку: ${explainVkUploadError(uploaded.error ?? "пустой ответ")}`;
+          fatal = explainVkUploadError(uploaded.error ?? "ВК не принял картинку");
           break;
         }
         vkAttachment = uploaded.attachment;

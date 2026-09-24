@@ -221,6 +221,23 @@ export async function uploadVkPhoto(
   peerId: string,
   media: { bytes: Buffer; filename?: string; mime?: string },
 ): Promise<{ attachment?: string; error?: string }> {
+  // Сервер загрузки ВК иногда отвечает пустым результатом без причины —
+  // с новым адресом загрузки со второй попытки обычно проходит.
+  let last: { attachment?: string; error?: string } = { error: "ВК не принял файл" };
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    last = await uploadVkPhotoOnce(token, peerId, media);
+    if (last.attachment) return last;
+    if (/access denied|scopes|permission/i.test(last.error ?? "")) return last;
+    await new Promise((resolve) => setTimeout(resolve, 1500 * attempt));
+  }
+  return last;
+}
+
+async function uploadVkPhotoOnce(
+  token: string,
+  peerId: string,
+  media: { bytes: Buffer; filename?: string; mime?: string },
+): Promise<{ attachment?: string; error?: string }> {
   try {
     const serverParams = new URLSearchParams({
       access_token: token,
@@ -237,18 +254,26 @@ export async function uploadVkPhoto(
     if (!serverData.response) return { error: serverData.error?.error_msg ?? "ВК не дал адрес загрузки" };
 
     const form = new FormData();
+    // Имя файла ВК не хранит, а длинные и «странные» имена его смущают — даём своё.
+    const extension = (media.mime || "image/jpeg").includes("png") ? "png" : "jpg";
     form.append(
       "photo",
       new Blob([new Uint8Array(media.bytes)], { type: media.mime || "image/jpeg" }),
-      media.filename || "photo.jpg",
+      `photo.${extension}`,
     );
     const uploadRes = await fetch(serverData.response.upload_url, { method: "POST", body: form });
-    const uploaded = (await uploadRes.json()) as {
-      server?: number;
-      photo?: string;
-      hash?: string;
-    };
-    if (!uploaded.photo) return { error: "ВК не принял файл" };
+    const uploadText = await uploadRes.text();
+    let uploaded: { server?: number; photo?: string; hash?: string; error?: string } = {};
+    try {
+      uploaded = JSON.parse(uploadText);
+    } catch {
+      return { error: `ВК не принял файл (HTTP ${uploadRes.status}): ${uploadText.slice(0, 120)}` };
+    }
+    if (!uploaded.photo || uploaded.photo === "[]") {
+      return {
+        error: `ВК не принял файл: ${uploaded.error ?? uploadText.slice(0, 120) ?? "пустой ответ"}`,
+      };
+    }
 
     const saveParams = new URLSearchParams({
       access_token: token,

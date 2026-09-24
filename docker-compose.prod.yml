@@ -15,7 +15,10 @@ services:
       retries: 10
 
   app:
-    build: .
+    # Образ собирается на машине разработчика (deploy.sh) и заливается готовым:
+    # на VPS с 1 vCPU / 2 ГБ сборка Next.js вешала сервер.
+    image: tg-admin-app:latest
+    pull_policy: never
     restart: unless-stopped
     depends_on:
       postgres:
