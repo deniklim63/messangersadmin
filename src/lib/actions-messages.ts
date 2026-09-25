@@ -161,6 +161,19 @@ export async function sendTestMessage(
 }
 
 
+/** Сбрасывает диалог в начало: человек больше не «висит» на старом вопросе сценария. */
+export async function resetDialog(formData: FormData): Promise<void> {
+  await requireAuth();
+  const subscriberId = String(formData.get("subscriberId") ?? "");
+  await prisma.subscriber
+    .update({
+      where: { id: subscriberId },
+      data: { currentBlockId: null, needsOperator: false, operatorSince: null },
+    })
+    .catch(() => null);
+  revalidatePath("/inbox");
+}
+
 /** Возвращает диалог боту: после ответа оператора сценарий снова ведёт разговор. */
 export async function releaseToBot(formData: FormData): Promise<void> {
   await requireAuth();

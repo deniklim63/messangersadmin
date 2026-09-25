@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { releaseToBot, sendToSubscriber } from "@/lib/actions-messages";
+import { releaseToBot, resetDialog, sendToSubscriber } from "@/lib/actions-messages";
 import { AttachmentList } from "@/components/attachment-list";
 import { FormatToolbar } from "@/components/format-toolbar";
 import { useInboxEvents } from "@/components/use-inbox-events";
@@ -247,6 +247,22 @@ export function Inbox({
                     </button>
                   </form>
                 ) : null}
+                <form
+                  action={async (formData) => {
+                    await resetDialog(formData);
+                    await loadChat(chat.subscriberId);
+                    await loadList();
+                  }}
+                >
+                  <input type="hidden" name="subscriberId" value={chat.subscriberId} />
+                  <button
+                    type="submit"
+                    title="Снять человека с текущего шага сценария: следующее сообщение начнёт диалог с начала"
+                    className="rounded-lg border border-[var(--line)] px-3 py-1.5 text-sm hover:border-[var(--accent)]"
+                  >
+                    Сбросить шаг
+                  </button>
+                </form>
                 <Link
                   href={`/contacts/${chat.contactId}`}
                   className="rounded-lg border border-[var(--line)] px-3 py-1.5 text-sm hover:border-[var(--accent)]"

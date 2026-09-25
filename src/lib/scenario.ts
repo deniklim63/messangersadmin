@@ -308,15 +308,13 @@ export async function handleScenarioMessage(params: {
     (block) => block.id === params.subscriber.currentBlockId,
   );
 
-  // Стоим на вопросе — значит сообщение человека и есть ответ,
-  // если только он не нажал кнопку выхода (её обработает обычная логика).
-  const pressedKnownButton = scenario.blocks.some((block) =>
-    block.buttons.some(
-      (button) => button.label.trim().toLowerCase() === params.text.trim().toLowerCase(),
-    ),
+  // Стоим на вопросе — значит сообщение человека и есть ответ. Но кнопка, ключевое
+  // слово или «Начать» важнее: так человек выходит из вопроса, а не отвечает на него.
+  const wantsToLeave = Boolean(
+    resolveExplicitTarget(scenario.blocks, params.subscriber.currentBlockId, params.text),
   );
 
-  if (current?.kind === "INPUT" && !pressedKnownButton) {
+  if (current?.kind === "INPUT" && !wantsToLeave) {
     return handleAnswer(params.bot, params.subscriber, scenario.blocks, current, params.text);
   }
 
@@ -394,7 +392,16 @@ async function handleAnswer(
 
   if (!parsed.ok) {
     // Не поняли ответ — переспрашиваем своим текстом, оставаясь на этом же вопросе.
-    const reply = block.inputError?.trim() || parsed.error || "Не понял ответ.";
+    const error = block.inputError?.trim() || parsed.error || "Не понял ответ.";
+    // Если уже переспрашивали — подсказываем выход, чтобы человек не застрял навсегда.
+    const recent = await prisma.message.findMany({
+      where: { subscriberId: subscriber.id, direction: "OUT" },
+      orderBy: { createdAt: "desc" },
+      take: 1,
+      select: { text: true },
+    });
+    const repeated = recent[0]?.text.startsWith(error);
+    const reply = repeated ? `${error}\n\nЧтобы вернуться в начало, напишите «меню».` : error;
     await sendMessage(bot, subscriber.externalId, reply, {});
     await logMessage({
       botId: bot.id,
