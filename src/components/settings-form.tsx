@@ -6,7 +6,13 @@ import { saveSettings, type SettingsState } from "@/lib/actions-settings";
 const controlClass =
   "w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--accent)]";
 
-export function SettingsForm({ masked }: { masked: string | null }) {
+export function SettingsForm({
+  masked,
+  geminiMasked,
+}: {
+  masked: string | null;
+  geminiMasked: string | null;
+}) {
   const [state, action, pending] = useActionState(saveSettings, {} as SettingsState);
 
   return (
@@ -26,7 +32,26 @@ export function SettingsForm({ masked }: { masked: string | null }) {
       </label>
       {masked ? (
         <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" name="clearAnthropicKey" /> Удалить ключ
+          <input type="checkbox" name="clearAnthropicKey" /> Удалить ключ Anthropic
+        </label>
+      ) : null}
+
+      <label className="block text-sm font-medium">
+        Ключ Google Gemini API
+        <input
+          name="geminiApiKey"
+          type="password"
+          autoComplete="off"
+          placeholder={geminiMasked ? "оставьте пустым, чтобы не менять" : "AIza… или AQ.…"}
+          className={`mt-1 ${controlClass}`}
+        />
+        <span className="mt-1 block text-xs font-normal text-[var(--muted)]">
+          {geminiMasked ? `Сейчас: ${geminiMasked}` : "Не задан"}
+        </span>
+      </label>
+      {geminiMasked ? (
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" name="clearGeminiKey" /> Удалить ключ Gemini
         </label>
       ) : null}
       <div className="flex items-center gap-3">

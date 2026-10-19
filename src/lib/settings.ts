@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 
 export const SETTING_ANTHROPIC_KEY = "anthropicApiKey";
+export const SETTING_GEMINI_KEY = "geminiApiKey";
 
 export async function getSetting(key: string): Promise<string | null> {
   const row = await prisma.appSetting.findUnique({ where: { key } });

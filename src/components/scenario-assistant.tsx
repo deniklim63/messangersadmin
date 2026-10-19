@@ -110,7 +110,7 @@ export function ScenarioAssistant({
       <div className="flex-1 space-y-3 overflow-y-auto px-4 py-3 text-sm">
         {!enabled ? (
           <p className="rounded-lg bg-amber-50 p-3 text-amber-800">
-            Помощник выключен: задайте ключ Anthropic API в разделе «Настройки».
+            Помощник выключен: задайте ключ Anthropic или Gemini в разделе «Настройки».
           </p>
         ) : null}
         {turns.length === 0 && enabled ? (

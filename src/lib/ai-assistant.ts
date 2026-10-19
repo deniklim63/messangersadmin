@@ -2,9 +2,11 @@ import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { getSetting, SETTING_ANTHROPIC_KEY } from "@/lib/settings";
+import { getSetting, SETTING_ANTHROPIC_KEY, SETTING_GEMINI_KEY } from "@/lib/settings";
 
 const MODEL = "claude-opus-5-5";
+const GEMINI_MODEL = "gemini-3.1-pro-preview";
+const GEMINI_FALLBACK_MODEL = "gemini-2.5-pro";
 
 /** Текст сообщения в чате помощника (история хранится на клиенте). */
 export type AssistantTurn = { role: "user" | "assistant"; text: string };
@@ -313,6 +315,155 @@ export type AssistantResult = {
   error?: string;
 };
 
+type ModelReply = { parsed?: z.infer<typeof ResponseSchema>; error?: string };
+
+/** Схема ответа в формате Gemini (подмножество OpenAPI) — зеркало ResponseSchema. */
+const GEMINI_SCHEMA = (() => {
+  const text = { type: "STRING", nullable: true };
+  const button = {
+    type: "OBJECT",
+    properties: { label: { type: "STRING" }, target: text, url: text },
+    required: ["label", "target", "url"],
+  };
+  const condition = {
+    type: "OBJECT",
+    properties: {
+      field: { type: "STRING" },
+      operator: { type: "STRING", enum: ["eq", "ne", "contains", "empty", "notEmpty", "gt", "lt"] },
+      value: text,
+      target: text,
+    },
+    required: ["field", "operator", "value", "target"],
+  };
+  const operationProperties: Record<string, unknown> = {
+    action: { type: "STRING", enum: ["add", "update", "delete"] },
+    ref: text,
+    id: text,
+    kind: {
+      type: "STRING",
+      enum: ["MESSAGE", "REQUEST", "CODE", "CONDITION", "DELAY", "HANDOFF", "INPUT"],
+      nullable: true,
+    },
+    title: text,
+    text,
+    keywords: { type: "ARRAY", items: { type: "STRING" }, nullable: true },
+    isStart: { type: "BOOLEAN", nullable: true },
+    buttons: { type: "ARRAY", items: button, nullable: true },
+    next: text,
+    imageFile: text,
+    inputKind: { type: "STRING", enum: ["text", "date", "phone", "email", "city"], nullable: true },
+    inputError: text,
+    saveAs: text,
+    method: { type: "STRING", enum: ["GET", "POST"], nullable: true },
+    url: text,
+    headers: text,
+    body: text,
+    code: text,
+    conditions: { type: "ARRAY", items: condition, nullable: true },
+    delaySeconds: { type: "INTEGER", nullable: true },
+    listSource: text,
+    listTemplate: text,
+    listEmpty: text,
+    listLimit: { type: "INTEGER", nullable: true },
+  };
+  return {
+    type: "OBJECT",
+    properties: {
+      message: { type: "STRING" },
+      operations: {
+        type: "ARRAY",
+        items: {
+          type: "OBJECT",
+          properties: operationProperties,
+          required: Object.keys(operationProperties),
+        },
+      },
+    },
+    required: ["message", "operations"],
+  };
+})();
+
+type GeminiPart =
+  | { text: string }
+  | { inlineData: { mimeType: string; data: string } };
+
+/** Запрос к Gemini через REST: системная подсказка, история, файлы, JSON по схеме. */
+export async function askGemini(params: {
+  apiKey: string;
+  history: AssistantTurn[];
+  userParts: GeminiPart[];
+  model?: string;
+}): Promise<ModelReply> {
+  const model = params.model ?? GEMINI_MODEL;
+  const contents = [
+    ...params.history.map((turn) => ({
+      role: turn.role === "user" ? "user" : "model",
+      parts: [{ text: turn.text }],
+    })),
+    { role: "user", parts: params.userParts },
+  ];
+
+  let response: Response;
+  try {
+    response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-goog-api-key": params.apiKey },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+          contents,
+          generationConfig: {
+            responseMimeType: "application/json",
+            responseSchema: GEMINI_SCHEMA,
+            temperature: 0.4,
+          },
+        }),
+        signal: AbortSignal.timeout(120_000),
+      },
+    );
+  } catch (error) {
+    // Зависший запрос к превью-модели — повторяем на стабильной.
+    if (model !== GEMINI_FALLBACK_MODEL) return askGemini({ ...params, model: GEMINI_FALLBACK_MODEL });
+    return { error: `Gemini недоступен: ${(error as Error).message}` };
+  }
+
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as
+      | { error?: { message?: string } }
+      | null;
+    const message = body?.error?.message ?? `HTTP ${response.status}`;
+    // Превью-модель может быть недоступна для ключа — пробуем стабильную.
+    if (model !== GEMINI_FALLBACK_MODEL && (response.status === 404 || response.status === 400)) {
+      return askGemini({ ...params, model: GEMINI_FALLBACK_MODEL });
+    }
+    if (response.status === 401 || response.status === 403) {
+      return { error: `Ключ Gemini не принят: ${message}` };
+    }
+    if (response.status === 429) return { error: "Лимит запросов к Gemini — попробуйте через минуту" };
+    return { error: `Ошибка Gemini (${response.status}): ${message}` };
+  }
+
+  const data = (await response.json()) as {
+    candidates?: { content?: { parts?: { text?: string }[] }; finishReason?: string }[];
+    promptFeedback?: { blockReason?: string };
+  };
+  const text = data.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("") ?? "";
+  if (!text) {
+    return { error: `Gemini не дал ответа${data.promptFeedback?.blockReason ? ` (${data.promptFeedback.blockReason})` : ""}` };
+  }
+
+  let json: unknown;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    return { error: "Gemini вернул не JSON — попробуйте переформулировать" };
+  }
+  const parsed = ResponseSchema.safeParse(json);
+  if (!parsed.success) return { error: "Ответ Gemini не подошёл под схему — попробуйте ещё раз" };
+  return { parsed: parsed.data };
+}
+
 /** Один ход диалога с помощником: читает сценарий, спрашивает Claude, применяет операции. */
 export async function runAssistant(params: {
   scenarioId: string;
@@ -320,15 +471,16 @@ export async function runAssistant(params: {
   message: string;
   files: AssistantFile[];
 }): Promise<AssistantResult> {
-  const apiKey = await getSetting(SETTING_ANTHROPIC_KEY);
-  if (!apiKey) {
-    return { reply: "", applied: [], error: "Не задан ключ Anthropic API — раздел «Настройки»." };
+  const [apiKey, geminiKey] = await Promise.all([
+    getSetting(SETTING_ANTHROPIC_KEY),
+    getSetting(SETTING_GEMINI_KEY),
+  ]);
+  if (!apiKey && !geminiKey) {
+    return { reply: "", applied: [], error: "Не задан ключ Anthropic или Gemini — раздел «Настройки»." };
   }
 
   const scenario = await loadScenario(params.scenarioId);
   if (!scenario) return { reply: "", applied: [], error: "Сценарий не найден" };
-
-  const client = new Anthropic({ apiKey });
 
   const context =
     `Текущий сценарий «${scenario.title}» для платформы ${scenario.platform}.\n` +
@@ -357,19 +509,32 @@ export async function runAssistant(params: {
     }
   }
 
+  const userText = [context, ...fileNotes, `Задача: ${params.message}`].join("\n\n");
+
+  // Без ключа Anthropic работаем через Gemini.
+  if (!apiKey && geminiKey) {
+    const userParts: GeminiPart[] = [
+      ...params.files
+        .filter((file) => file.mime.startsWith("image/") || file.mime === "application/pdf")
+        .map((file) => ({
+          inlineData: { mimeType: file.mime, data: file.bytes.toString("base64") },
+        })),
+      { text: userText },
+    ];
+    const reply = await askGemini({ apiKey: geminiKey, history: params.history, userParts });
+    if (reply.error || !reply.parsed) return { reply: "", applied: [], error: reply.error };
+    const applied = await applyOperations(params.scenarioId, reply.parsed.operations, params.files);
+    return { reply: reply.parsed.message, applied };
+  }
+
+  const client = new Anthropic({ apiKey: apiKey! });
   const messages: Anthropic.MessageParam[] = params.history.map((turn) => ({
     role: turn.role,
     content: turn.text,
   }));
   messages.push({
     role: "user",
-    content: [
-      ...attachments,
-      {
-        type: "text",
-        text: [context, ...fileNotes, `Задача: ${params.message}`].join("\n\n"),
-      },
-    ],
+    content: [...attachments, { type: "text", text: userText }],
   });
 
   try {

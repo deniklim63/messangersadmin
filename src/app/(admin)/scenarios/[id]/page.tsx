@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { ScenarioWorkspace } from "@/components/scenario-workspace";
 import { deleteScenario, moveScenario, toggleScenario } from "@/lib/actions-scenarios";
 import { prisma } from "@/lib/db";
-import { getSetting, SETTING_ANTHROPIC_KEY } from "@/lib/settings";
+import { getSetting, SETTING_ANTHROPIC_KEY, SETTING_GEMINI_KEY } from "@/lib/settings";
 import { ScenarioSchedules } from "@/components/scenario-schedules";
 
 export const dynamic = "force-dynamic";
@@ -24,8 +24,9 @@ export default async function ScenarioPage({ params }: { params: Promise<{ id: s
   });
   if (!scenario) notFound();
 
-  const [assistantKey, cities, schedules] = await Promise.all([
+  const [assistantKey, geminiKey, cities, schedules] = await Promise.all([
     getSetting(SETTING_ANTHROPIC_KEY),
+    getSetting(SETTING_GEMINI_KEY),
     prisma.city.findMany({ orderBy: { name: "asc" } }),
     prisma.scenarioSchedule.findMany({
       where: { scenarioId: id },
@@ -97,7 +98,7 @@ export default async function ScenarioPage({ params }: { params: Promise<{ id: s
 
       <ScenarioWorkspace
         scenarioId={scenario.id}
-        assistantEnabled={Boolean(assistantKey)}
+        assistantEnabled={Boolean(assistantKey || geminiKey)}
         blocks={scenario.blocks.map((block) => ({
           id: block.id,
           kind: block.kind,
