@@ -22,6 +22,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           <NavLink href="/broadcasts">Рассылки</NavLink>
           <NavLink href="/analytics">Аналитика</NavLink>
           <NavLink href="/bots">Боты</NavLink>
+          <NavLink href="/settings">Настройки</NavLink>
         </nav>
 
         <div className="mt-auto">

@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import { ScenarioWorkspace } from "@/components/scenario-workspace";
 import { deleteScenario, moveScenario, toggleScenario } from "@/lib/actions-scenarios";
 import { prisma } from "@/lib/db";
+import { getSetting, SETTING_ANTHROPIC_KEY } from "@/lib/settings";
+import { ScenarioSchedules } from "@/components/scenario-schedules";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +23,16 @@ export default async function ScenarioPage({ params }: { params: Promise<{ id: s
     },
   });
   if (!scenario) notFound();
+
+  const [assistantKey, cities, schedules] = await Promise.all([
+    getSetting(SETTING_ANTHROPIC_KEY),
+    prisma.city.findMany({ orderBy: { name: "asc" } }),
+    prisma.scenarioSchedule.findMany({
+      where: { scenarioId: id },
+      orderBy: { createdAt: "asc" },
+      include: { block: { select: { title: true } } },
+    }),
+  ]);
 
   return (
     <div className="space-y-4">
@@ -85,6 +97,7 @@ export default async function ScenarioPage({ params }: { params: Promise<{ id: s
 
       <ScenarioWorkspace
         scenarioId={scenario.id}
+        assistantEnabled={Boolean(assistantKey)}
         blocks={scenario.blocks.map((block) => ({
           id: block.id,
           kind: block.kind,
@@ -125,6 +138,29 @@ export default async function ScenarioPage({ params }: { params: Promise<{ id: s
                 ? { x: button.waypointX, y: button.waypointY }
                 : null,
           })),
+        }))}
+      />
+
+      <ScenarioSchedules
+        scenarioId={scenario.id}
+        blocks={scenario.blocks.map((block) => ({
+          id: block.id,
+          title: block.title,
+          isStart: block.isStart,
+        }))}
+        cities={cities.map((city) => ({ slug: city.slug, name: city.name }))}
+        schedules={schedules.map((item) => ({
+          id: item.id,
+          blockTitle: item.block.title,
+          kind: item.kind,
+          runAt: item.runAt?.toISOString() ?? null,
+          days: item.days,
+          time: item.time,
+          cities: item.cities,
+          isActive: item.isActive,
+          nextRunAt: item.nextRunAt?.toISOString() ?? null,
+          lastRunAt: item.lastRunAt?.toISOString() ?? null,
+          lastCount: item.lastCount,
         }))}
       />
     </div>

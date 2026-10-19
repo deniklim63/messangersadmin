@@ -231,7 +231,8 @@ model Scenario {
   title    String
   isActive Boolean @default(false)
 
-  blocks ScenarioBlock[]
+  blocks    ScenarioBlock[]
+  schedules ScenarioSchedule[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -304,6 +305,7 @@ model ScenarioBlock {
 
   buttons     ScenarioButton[]
   incoming    ScenarioButton[] @relation("ButtonTarget")
+  schedules   ScenarioSchedule[]
   subscribers Subscriber[]
 
   createdAt DateTime @default(now())
@@ -369,4 +371,41 @@ model ScheduledStep {
   createdAt DateTime @default(now())
 
   @@index([runAt])
+}
+
+/// Настройки админки: ключи внешних сервисов и прочее, что задают из интерфейса.
+model AppSetting {
+  key   String @id
+  value String
+
+  updatedAt DateTime @updatedAt
+}
+
+/// Запуск ветки сценария по расписанию: разово или по дням недели, время московское.
+model ScenarioSchedule {
+  id         String   @id @default(cuid())
+  scenarioId String
+  scenario   Scenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+  blockId    String
+  block      ScenarioBlock @relation(fields: [blockId], references: [id], onDelete: Cascade)
+
+  /// once — один раз в runAt; weekly — по дням недели days в время time.
+  kind  String   @default("once")
+  runAt DateTime?
+  /// Дни недели: 1 — понедельник … 7 — воскресенье.
+  days  Int[]    @default([])
+  /// «HH:mm» по Москве.
+  time  String?
+  /// Города-сегменты (slug), пусто — всем.
+  cities String[] @default([])
+
+  isActive  Boolean   @default(true)
+  nextRunAt DateTime?
+  lastRunAt DateTime?
+  /// Сколько человек получили прошлый запуск.
+  lastCount Int       @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@index([isActive, nextRunAt])
 }

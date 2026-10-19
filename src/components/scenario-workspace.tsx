@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { duplicateBlock, removeBlock } from "@/lib/actions-scenarios";
 import { BlockEditor, type EditorBlock } from "@/components/block-editor";
+import { ScenarioAssistant } from "@/components/scenario-assistant";
 import { ScenarioCanvas, type CanvasBlock } from "@/components/scenario-canvas";
 
 export type WorkspaceBlock = CanvasBlock & EditorBlock;
@@ -11,12 +12,15 @@ export type WorkspaceBlock = CanvasBlock & EditorBlock;
 export function ScenarioWorkspace({
   scenarioId,
   blocks,
+  assistantEnabled,
 }: {
   scenarioId: string;
   blocks: WorkspaceBlock[];
+  assistantEnabled: boolean;
 }) {
   const router = useRouter();
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [assistantOpen, setAssistantOpen] = useState(blocks.length <= 1);
   const [busy, startTransition] = useTransition();
   const selected = blocks.find((block) => block.id === selectedId) ?? null;
 
@@ -46,11 +50,31 @@ export function ScenarioWorkspace({
           onSelect={setSelectedId}
           onDuplicate={duplicate}
         />
-        <p className="mt-2 text-xs text-[var(--muted)]">
-          Перетаскивайте экраны мышью, тяните за кружок справа от кнопки, чтобы связать её
-          с другим экраном. Колесо мыши — масштаб, перетаскивание фона — сдвиг схемы.
-        </p>
+        <div className="mt-2 flex items-center justify-between gap-3">
+          <p className="text-xs text-[var(--muted)]">
+            Перетаскивайте экраны мышью, тяните за кружок справа от кнопки, чтобы связать её
+            с другим экраном. Колесо мыши — масштаб, перетаскивание фона — сдвиг схемы.
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              setAssistantOpen((open) => !open);
+              setSelectedId(null);
+            }}
+            className={`shrink-0 rounded-lg border px-3 py-1.5 text-sm ${
+              assistantOpen
+                ? "border-[var(--accent)] text-[var(--accent)]"
+                : "border-[var(--line)] hover:border-[var(--accent)]"
+            }`}
+          >
+            ✨ AI-помощник
+          </button>
+        </div>
       </div>
+
+      {assistantOpen && !selected ? (
+        <ScenarioAssistant scenarioId={scenarioId} enabled={assistantEnabled} />
+      ) : null}
 
       {selected ? (
         <aside className="w-full shrink-0 self-start rounded-2xl border border-[var(--line)] bg-white p-5 xl:w-[420px]">

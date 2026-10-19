@@ -1,6 +1,7 @@
 import { deliverBroadcast } from "@/lib/broadcast-delivery";
 import { prisma } from "@/lib/db";
 import { runFromBlock } from "@/lib/scenario";
+import { processDueSchedules } from "@/lib/schedule-runs";
 
 const TICK_MS = 5000;
 const BATCH = 20;
@@ -75,6 +76,9 @@ export function startScheduler(): void {
     });
     void processDueBroadcasts().catch((error) => {
       console.error("Планировщик рассылок:", (error as Error).message);
+    });
+    void processDueSchedules().catch((error) => {
+      console.error("Планировщик сценариев:", (error as Error).message);
     });
   }, TICK_MS);
 }

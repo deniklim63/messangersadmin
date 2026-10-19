@@ -63,6 +63,29 @@ export async function getActiveScenario(botId: string) {
   });
 }
 
+/**
+ * Сценарий, которому принадлежит текущий блок человека. Нужен для кампаний:
+ * рассылка по расписанию уводит человека в другой сценарий того же бота,
+ * и его кнопки должны работать, хотя «основной» сценарий — другой.
+ */
+async function getScenarioOfBlock(blockId: string | null, botId: string) {
+  if (!blockId) return null;
+  const block = await prisma.scenarioBlock.findUnique({
+    where: { id: blockId },
+    select: { scenarioId: true },
+  });
+  if (!block) return null;
+  return prisma.scenario.findFirst({
+    where: { id: block.scenarioId, botId },
+    include: {
+      blocks: {
+        orderBy: { createdAt: "asc" },
+        include: { buttons: { orderBy: { position: "asc" } } },
+      },
+    },
+  });
+}
+
 /** Отправляет экран сценария: картинку, текст и кнопки под ним. */
 export async function sendBlock(
   bot: Bot,
@@ -285,7 +308,24 @@ export async function handleScenarioMessage(params: {
   >;
   text: string;
 }): Promise<boolean> {
-  const scenario = await getActiveScenario(params.bot.id);
+  const active = await getActiveScenario(params.bot.id);
+  const own = await getScenarioOfBlock(params.subscriber.currentBlockId, params.bot.id);
+
+  // Человек в кампании (другой сценарий): сначала пробуем её кнопки и вопросы,
+  // и только если сообщение к ней не относится — возвращаемся в основной сценарий.
+  if (own && own.id !== active?.id) {
+    const ownCurrent = own.blocks.find((block) => block.id === params.subscriber.currentBlockId);
+    const ownTarget = resolveExplicitTarget(own.blocks, params.subscriber.currentBlockId, params.text);
+    if (ownCurrent?.kind === "INPUT" && !ownTarget && !params.subscriber.needsOperator) {
+      return handleAnswer(params.bot, params.subscriber, own.blocks, ownCurrent, params.text);
+    }
+    if (ownTarget && !params.subscriber.needsOperator) {
+      await runChainFor(params, own.blocks, ownTarget);
+      return true;
+    }
+  }
+
+  const scenario = active;
   if (!scenario || scenario.blocks.length === 0) return false;
 
   // Диалог ведёт живой человек — бот не перебивает свободную переписку.
@@ -321,6 +361,23 @@ export async function handleScenarioMessage(params: {
   const target = resolveTarget(scenario.blocks, params.subscriber.currentBlockId, params.text);
   if (!target) return true;
 
+  await runChainFor(params, scenario.blocks, target);
+  return true;
+}
+
+/** Собирает данные человека и запускает цепочку с блока. */
+async function runChainFor(
+  params: {
+    bot: Bot;
+    subscriber: Pick<
+      Subscriber,
+      "id" | "externalId" | "contactId" | "botId" | "currentBlockId" | "username" | "needsOperator"
+    >;
+    text: string;
+  },
+  blocks: ScenarioBlock[],
+  target: ScenarioBlock,
+): Promise<void> {
   const contact = await prisma.contact.findUnique({
     where: { id: params.subscriber.contactId },
     include: { city: true },
@@ -336,24 +393,27 @@ export async function handleScenarioMessage(params: {
     variables: contact?.variables,
   });
 
-  await runChain(params.bot, params.subscriber, scenario.blocks, target, {
+  await runChain(params.bot, params.subscriber, blocks, target, {
     ...scope,
     message: params.text,
   });
-
-  return true;
 }
 
 
 /** Запускает сценарий с конкретного блока — используется отложенными шагами. */
-export async function runFromBlock(subscriberId: string, blockId: string): Promise<void> {
+export async function runFromBlock(
+  subscriberId: string,
+  blockId: string,
+  options: { force?: boolean } = {},
+): Promise<void> {
   const subscriber = await prisma.subscriber.findUnique({
     where: { id: subscriberId },
     include: { bot: true, contact: { include: { city: true } } },
   });
-  if (!subscriber || subscriber.needsOperator) return;
+  if (!subscriber || (subscriber.needsOperator && !options.force)) return;
 
-  const scenario = await getActiveScenario(subscriber.botId);
+  // Блок может принадлежать не основному сценарию — например, кампании по расписанию.
+  const scenario = await getScenarioOfBlock(blockId, subscriber.botId);
   const block = scenario?.blocks.find((item) => item.id === blockId);
   if (!scenario || !block) return;
 
