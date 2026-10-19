@@ -56,18 +56,18 @@ export function ScenarioSchedules({
   const start = blocks.find((block) => block.isStart) ?? blocks[0];
 
   return (
-    <section className="rounded-2xl border border-[var(--line)] bg-white p-5">
+    <section className="p-4">
       <h2 className="text-sm font-semibold">Запуск по расписанию</h2>
-      <p className="mt-1 text-sm text-[var(--muted)]">
-        В назначенное время бот сам отправит выбранный блок всем подписчикам (или выбранным
-        городам), а дальше человек идёт по сценарию кнопками. Время — московское.
+      <p className="mt-1 text-xs text-[var(--muted)]">
+        В назначенное время бот сам отправит выбранный экран подписчикам, дальше человек идёт
+        по сценарию кнопками. Время — московское.
       </p>
 
       {schedules.length ? (
         <ul className="mt-4 divide-y divide-[var(--line)]">
           {schedules.map((item) => (
-            <li key={item.id} className="flex flex-wrap items-center gap-3 py-3 text-sm">
-              <div className="min-w-0 flex-1">
+            <li key={item.id} className="space-y-2 py-3 text-sm">
+              <div className="min-w-0">
                 <div className="font-medium">
                   {item.kind === "once"
                     ? `Один раз · ${moscow(item.runAt)}`
@@ -84,17 +84,18 @@ export function ScenarioSchedules({
                   {item.cities.length ? ` · города: ${item.cities.length}` : " · все города"}
                 </div>
               </div>
+              <div className="flex flex-wrap items-center gap-1.5">
               <form action={toggleSchedule}>
                 <input type="hidden" name="id" value={item.id} />
                 <button
                   type="submit"
-                  className={`rounded-lg border px-3 py-1.5 text-sm ${
+                  className={`rounded-lg border px-3 py-1.5 text-sm font-medium ${
                     item.isActive
-                      ? "border-[var(--accent)] text-[var(--accent)]"
-                      : "border-[var(--line)]"
+                      ? "border-green-300 bg-green-50 text-green-700"
+                      : "border-[var(--line)] text-[var(--muted)]"
                   }`}
                 >
-                  {item.isActive ? "Включено" : "Включить"}
+                  {item.isActive ? "● Включено" : "○ Выключено"}
                 </button>
               </form>
               <form
@@ -116,12 +117,14 @@ export function ScenarioSchedules({
                   Удалить
                 </button>
               </form>
+              </div>
             </li>
           ))}
         </ul>
       ) : null}
 
-      <form action={action} className="mt-4 grid gap-3 sm:grid-cols-2">
+      <h3 className="mt-5 text-sm font-semibold">Новый запуск</h3>
+      <form action={action} className="mt-2 grid gap-3">
         <input type="hidden" name="scenarioId" value={scenarioId} />
         <label className="block text-sm font-medium">
           Какой блок отправить
@@ -194,7 +197,7 @@ export function ScenarioSchedules({
           </>
         )}
 
-        <div className="text-sm font-medium sm:col-span-2">
+        <div className="text-sm font-medium">
           Города <span className="font-normal text-[var(--muted)]">(ничего не отмечено — всем)</span>
           <div className="mt-1 flex flex-wrap gap-1">
             {cities.map((city) => (
@@ -206,7 +209,7 @@ export function ScenarioSchedules({
           </div>
         </div>
 
-        <div className="flex items-center gap-3 sm:col-span-2">
+        <div className="flex items-center gap-3">
           <button
             type="submit"
             disabled={pending || blocks.length === 0}

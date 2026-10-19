@@ -4,7 +4,6 @@ import { ScenarioWorkspace } from "@/components/scenario-workspace";
 import { deleteScenario, moveScenario, toggleScenario } from "@/lib/actions-scenarios";
 import { prisma } from "@/lib/db";
 import { getSetting, SETTING_ANTHROPIC_KEY, SETTING_GEMINI_KEY } from "@/lib/settings";
-import { ScenarioSchedules } from "@/components/scenario-schedules";
 
 export const dynamic = "force-dynamic";
 
@@ -36,17 +35,23 @@ export default async function ScenarioPage({ params }: { params: Promise<{ id: s
   ]);
 
   return (
-    <div className="space-y-4">
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <Link href="/scenarios" className="text-sm text-[var(--muted)] hover:underline">
-            ← Ко всем сценариям
+    <div className="-m-8 flex h-dvh flex-col gap-3 p-4">
+      <header className="flex shrink-0 flex-wrap items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <Link
+            href="/scenarios"
+            className="rounded-lg border border-[var(--line)] px-2.5 py-1.5 text-sm hover:border-[var(--accent)]"
+          >
+            ← Сценарии
           </Link>
-          <h1 className="mt-1 text-2xl font-semibold">{scenario.title}</h1>
-          <p className="text-sm text-[var(--muted)]">
-            {scenario.bot.title} · {scenario.isActive ? "включён" : "выключен"} · экранов:{" "}
-            {scenario.blocks.length}
-          </p>
+          <div className="min-w-0">
+            <h1 className="truncate text-lg font-semibold leading-tight">{scenario.title}</h1>
+            <p className="text-xs text-[var(--muted)]">
+              {scenario.bot.platform === "TELEGRAM" ? "Telegram" : "ВКонтакте"} · {scenario.bot.title} ·{" "}
+              {scenario.isActive ? "основной сценарий бота" : "не основной"} · экранов:{" "}
+              {scenario.blocks.length}
+            </p>
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -81,7 +86,7 @@ export default async function ScenarioPage({ params }: { params: Promise<{ id: s
                   : "border-[var(--line)] hover:border-[var(--accent)]"
               }`}
             >
-              {scenario.isActive ? "Выключить" : "Включить"}
+              {scenario.isActive ? "Основной ✓" : "Сделать основным"}
             </button>
           </form>
           <form action={deleteScenario}>
@@ -99,6 +104,20 @@ export default async function ScenarioPage({ params }: { params: Promise<{ id: s
       <ScenarioWorkspace
         scenarioId={scenario.id}
         assistantEnabled={Boolean(assistantKey || geminiKey)}
+        cities={cities.map((city) => ({ slug: city.slug, name: city.name }))}
+        schedules={schedules.map((item) => ({
+          id: item.id,
+          blockTitle: item.block.title,
+          kind: item.kind,
+          runAt: item.runAt?.toISOString() ?? null,
+          days: item.days,
+          time: item.time,
+          cities: item.cities,
+          isActive: item.isActive,
+          nextRunAt: item.nextRunAt?.toISOString() ?? null,
+          lastRunAt: item.lastRunAt?.toISOString() ?? null,
+          lastCount: item.lastCount,
+        }))}
         blocks={scenario.blocks.map((block) => ({
           id: block.id,
           kind: block.kind,
@@ -139,29 +158,6 @@ export default async function ScenarioPage({ params }: { params: Promise<{ id: s
                 ? { x: button.waypointX, y: button.waypointY }
                 : null,
           })),
-        }))}
-      />
-
-      <ScenarioSchedules
-        scenarioId={scenario.id}
-        blocks={scenario.blocks.map((block) => ({
-          id: block.id,
-          title: block.title,
-          isStart: block.isStart,
-        }))}
-        cities={cities.map((city) => ({ slug: city.slug, name: city.name }))}
-        schedules={schedules.map((item) => ({
-          id: item.id,
-          blockTitle: item.block.title,
-          kind: item.kind,
-          runAt: item.runAt?.toISOString() ?? null,
-          days: item.days,
-          time: item.time,
-          cities: item.cities,
-          isActive: item.isActive,
-          nextRunAt: item.nextRunAt?.toISOString() ?? null,
-          lastRunAt: item.lastRunAt?.toISOString() ?? null,
-          lastCount: item.lastCount,
         }))}
       />
     </div>

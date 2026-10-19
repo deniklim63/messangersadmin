@@ -99,11 +99,11 @@ export function ScenarioAssistant({
   }
 
   return (
-    <aside className="flex h-[640px] w-full shrink-0 flex-col rounded-2xl border border-[var(--line)] bg-white xl:w-[380px]">
+    <div className="flex h-full flex-col">
       <div className="border-b border-[var(--line)] px-4 py-3">
         <div className="text-sm font-semibold">AI-помощник</div>
         <div className="text-xs text-[var(--muted)]">
-          Расскажите, что должен делать бот, — помощник соберёт блоки сам
+          Расскажите или надиктуйте, что должен делать бот, — помощник соберёт экраны сам
         </div>
       </div>
 
@@ -177,7 +177,7 @@ export function ScenarioAssistant({
               listening ? "border-red-300 bg-red-50 text-red-700" : "border-[var(--line)]"
             }`}
           >
-            {listening ? "⏹ Стоп" : "🎤"}
+            {listening ? "⏹ Стоп" : "🎤 Диктовать"}
           </button>
           <input
             ref={fileRef}
@@ -193,7 +193,7 @@ export function ScenarioAssistant({
             className="cursor-pointer rounded-lg border border-[var(--line)] px-3 py-1.5 text-sm"
             title="Приложить картинки или документы"
           >
-            📎
+            📎 Файлы
           </label>
           <button
             type="button"
@@ -206,6 +206,6 @@ export function ScenarioAssistant({
         </div>
         <div className="mt-1 text-xs text-[var(--muted)]">⌘/Ctrl + Enter — отправить</div>
       </div>
-    </aside>
+    </div>
   );
 }

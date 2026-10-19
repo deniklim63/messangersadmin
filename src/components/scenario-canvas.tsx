@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   clearNextBlock,
   connectButton,
@@ -254,11 +254,40 @@ export function ScenarioCanvas({
     );
   }
 
+  /** Подбирает масштаб и сдвиг так, чтобы вся схема поместилась на экран. */
+  const fitView = useCallback(() => {
+    const box = surfaceRef.current?.getBoundingClientRect();
+    if (!box || blocks.length === 0) return;
+    const xs = blocks.map((block) => positionOf(block.id).x);
+    const ys = blocks.map((block) => positionOf(block.id).y);
+    const minX = Math.min(...xs) - 40;
+    const minY = Math.min(...ys) - 40;
+    const maxX = Math.max(...xs) + BLOCK_WIDTH + 40;
+    const maxY =
+      Math.max(...blocks.map((block) => positionOf(block.id).y + blockHeight(block.buttons.length))) + 40;
+    const scale = Math.min(1, Math.max(0.3, Math.min(box.width / (maxX - minX), box.height / (maxY - minY))));
+    setView({
+      scale,
+      x: (box.width - (maxX - minX) * scale) / 2 - minX * scale,
+      y: (box.height - (maxY - minY) * scale) / 2 - minY * scale,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blocks]);
+
+  // При открытии показываем всю схему целиком.
+  useEffect(() => {
+    fitView();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scenarioId]);
+
   const linkFrom = drag?.kind === "link" ? drag.from : null;
   const linkTo = drag?.kind === "link" ? drag.to : null;
 
+  const toolButton =
+    "rounded-lg border border-[var(--line)] bg-white px-2.5 py-1.5 text-sm hover:border-[var(--accent)] hover:text-[var(--accent)]";
+
   return (
-    <div className="relative h-[calc(100dvh-9rem)] overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--bg)]">
+    <div className="relative h-full overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--bg)]">
       <div
         ref={surfaceRef}
         className="absolute inset-0 touch-none"
@@ -505,8 +534,10 @@ export function ScenarioCanvas({
             return (
               <div
                 key={block.id}
-                className={`absolute rounded-xl border bg-white shadow-sm ${
-                  active ? "border-[var(--accent)]" : "border-[var(--line)]"
+                className={`absolute cursor-pointer rounded-xl border-2 bg-white shadow-sm transition-shadow hover:shadow-md ${
+                  active
+                    ? "border-[var(--accent)] shadow-md ring-4 ring-[var(--accent)]/15"
+                    : "border-[var(--line)] hover:border-[var(--accent)]/60"
                 }`}
                 style={{ left: position.x, top: position.y, width: BLOCK_WIDTH }}
                 onPointerDown={(event) => {
@@ -526,7 +557,7 @@ export function ScenarioCanvas({
                   className="flex items-center justify-between gap-2 rounded-t-xl border-b border-[var(--line)] px-3"
                   style={{ height: HEADER_HEIGHT }}
                 >
-                  <span className="truncate text-xs font-medium">{block.title}</span>
+                  <span className="truncate text-[13px] font-semibold">{block.title}</span>
                   <span className="flex shrink-0 items-center gap-1">
                     <button
                       type="button"
@@ -611,11 +642,33 @@ export function ScenarioCanvas({
         </div>
       </div>
 
-      <div className="absolute bottom-3 left-3 flex items-center gap-2 rounded-xl border border-[var(--line)] bg-white px-2 py-1.5 shadow-sm">
+      <div className="absolute left-3 top-3 flex items-center gap-1.5 rounded-xl border border-[var(--line)] bg-white/95 p-1.5 shadow-sm backdrop-blur">
+        <button type="button" onClick={() => void addBlock()} className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:opacity-90">
+          + Экран
+        </button>
+        <span className="mx-1 h-5 w-px bg-[var(--line)]" />
+        <button type="button" onClick={fitView} title="Показать всю схему" className={toolButton}>
+          ⤢ Вся схема
+        </button>
+        <button type="button" onClick={() => void relayout()} title="Расставить экраны автоматически" className={toolButton}>
+          ✦ Разложить
+        </button>
+        <button
+          type="button"
+          onClick={() => setShowReturns((current) => !current)}
+          title="Показать линии, ведущие на стартовый экран"
+          className={`${toolButton} ${showReturns ? "border-[var(--accent)] text-[var(--accent)]" : ""}`}
+        >
+          ↩ Возвраты
+        </button>
+      </div>
+
+      <div className="absolute bottom-3 left-3 flex items-center gap-1 rounded-xl border border-[var(--line)] bg-white/95 p-1 shadow-sm backdrop-blur">
         <button
           type="button"
           onClick={() => setView((current) => ({ ...current, scale: Math.max(0.3, current.scale / 1.2) }))}
-          className="h-7 w-7 rounded-lg border border-[var(--line)] text-sm"
+          className="h-8 w-8 rounded-lg text-base hover:bg-[var(--bg)]"
+          title="Уменьшить"
         >
           −
         </button>
@@ -625,43 +678,16 @@ export function ScenarioCanvas({
         <button
           type="button"
           onClick={() => setView((current) => ({ ...current, scale: Math.min(2, current.scale * 1.2) }))}
-          className="h-7 w-7 rounded-lg border border-[var(--line)] text-sm"
+          className="h-8 w-8 rounded-lg text-base hover:bg-[var(--bg)]"
+          title="Увеличить"
         >
           +
         </button>
-        <button
-          type="button"
-          onClick={() => setView({ x: 0, y: 0, scale: 1 })}
-          className="rounded-lg border border-[var(--line)] px-2 py-1 text-xs"
-        >
-          Сбросить
-        </button>
-        <button
-          type="button"
-          onClick={() => void relayout()}
-          className="rounded-lg border border-[var(--line)] px-2 py-1 text-xs"
-        >
-          Разложить
-        </button>
-        <button
-          type="button"
-          onClick={() => setShowReturns((current) => !current)}
-          title="Линии, ведущие на стартовый экран"
-          className={`rounded-lg border px-2 py-1 text-xs ${
-            showReturns ? "border-[var(--accent)] text-[var(--accent)]" : "border-[var(--line)]"
-          }`}
-        >
-          Возвраты в меню
-        </button>
       </div>
 
-      <button
-        type="button"
-        onClick={() => void addBlock()}
-        className="absolute bottom-3 right-3 rounded-xl bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white shadow-sm"
-      >
-        + Экран
-      </button>
+      <div className="pointer-events-none absolute bottom-3 right-3 rounded-lg bg-white/80 px-2 py-1 text-[11px] text-[var(--muted)]">
+        Тяните экраны мышью · колесо — масштаб · за кружок у кнопки — связь
+      </div>
     </div>
   );
 }
