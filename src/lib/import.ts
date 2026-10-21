@@ -8,6 +8,8 @@ export type ImportRow = {
   phone?: string | null;
   email?: string | null;
   city?: string | null;
+  /** @username в Telegram — в выгрузках бывает с «@» или без. */
+  username?: string | null;
   /** Дата первого контакта из выгрузки — чтобы аналитика не считала всех «сегодняшними». */
   subscribedAt?: string | null;
 };
@@ -65,6 +67,7 @@ export async function importRows(botId: string, rows: ImportRow[]): Promise<Impo
         phone: row.phone,
         email: row.email,
         city: row.city,
+        username: row.username?.trim().replace(/^@/, "") || undefined,
         // Данные из выгрузки не перетирают то, что человек сказал боту позже.
         fillEmptyOnly: Boolean(existing),
       });

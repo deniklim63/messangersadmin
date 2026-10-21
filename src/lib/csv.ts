@@ -72,7 +72,7 @@ export function decodeBuffer(buffer: ArrayBuffer, encoding: "auto" | "utf-8" | "
   return { text: utf8, used: "utf-8" as const };
 }
 
-export type FieldKey = "externalId" | "name" | "phone" | "email" | "city" | "subscribedAt";
+export type FieldKey = "externalId" | "name" | "phone" | "email" | "city" | "username" | "subscribedAt";
 
 const HINTS: Record<FieldKey, string[]> = {
   externalId: [
@@ -83,7 +83,11 @@ const HINTS: Record<FieldKey, string[]> = {
     "user_id",
     "vk id",
     "id в мессенджере",
+    "telegram_id",
+    "telegram id",
+    "chat_id",
   ],
+  username: ["username", "telegram_username", "ник", "логин"],
   name: ["имя", "name", "фио", "имя клиента"],
   phone: ["телефон", "phone", "номер телефона", "тел"],
   email: ["email", "e-mail", "почта", "мейл"],

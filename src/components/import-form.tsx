@@ -19,6 +19,7 @@ const FIELDS: { key: FieldKey; label: string; required?: boolean }[] = [
   { key: "phone", label: "Телефон" },
   { key: "email", label: "E-mail" },
   { key: "city", label: "Город" },
+  { key: "username", label: "Username (@)" },
   { key: "subscribedAt", label: "Дата подписки" },
 ];
 
@@ -97,6 +98,7 @@ export function ImportForm({ bots }: { bots: Bot[] }) {
         phone: pick(row, "phone"),
         email: pick(row, "email"),
         city: pick(row, "city"),
+        username: pick(row, "username"),
         subscribedAt: pick(row, "subscribedAt"),
       }));
 

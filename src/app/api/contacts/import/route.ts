@@ -14,6 +14,7 @@ const schema = z.object({
         phone: z.string().nullish(),
         email: z.string().nullish(),
         city: z.string().nullish(),
+        username: z.string().nullish(),
         subscribedAt: z.string().nullish(),
       }),
     )
