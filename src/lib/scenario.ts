@@ -309,15 +309,29 @@ export async function handleScenarioMessage(params: {
     "id" | "externalId" | "contactId" | "botId" | "currentBlockId" | "username" | "needsOperator"
   >;
   text: string;
+  /** id нажатой инлайн-кнопки: кнопки с одинаковым текстом различаем только по нему. */
+  buttonId?: string | null;
 }): Promise<boolean> {
   const active = await getActiveScenario(params.bot.id);
   const own = await getScenarioOfBlock(params.subscriber.currentBlockId, params.bot.id);
+
+  /** Цель нажатой кнопки — по её id, без оглядки на текст. */
+  const byButton = (blocks: ScenarioBlock[]) => {
+    if (!params.buttonId) return null;
+    for (const block of blocks) {
+      const button = block.buttons.find((item) => item.id === params.buttonId);
+      if (button?.targetBlockId) return blocks.find((item) => item.id === button.targetBlockId) ?? null;
+    }
+    return null;
+  };
 
   // Человек в кампании (другой сценарий): сначала пробуем её кнопки и вопросы,
   // и только если сообщение к ней не относится — возвращаемся в основной сценарий.
   if (own && own.id !== active?.id) {
     const ownCurrent = own.blocks.find((block) => block.id === params.subscriber.currentBlockId);
-    const ownTarget = resolveExplicitTarget(own.blocks, params.subscriber.currentBlockId, params.text);
+    const ownTarget =
+      byButton(own.blocks) ??
+      resolveExplicitTarget(own.blocks, params.subscriber.currentBlockId, params.text);
     if (ownCurrent?.kind === "INPUT" && !ownTarget && !params.subscriber.needsOperator) {
       return handleAnswer(params.bot, params.subscriber, own.blocks, ownCurrent, params.text);
     }
@@ -352,7 +366,9 @@ export async function handleScenarioMessage(params: {
 
   // Стоим на вопросе — значит сообщение человека и есть ответ. Но кнопка, ключевое
   // слово или «Начать» важнее: так человек выходит из вопроса, а не отвечает на него.
+  const pressed = byButton(scenario.blocks);
   const wantsToLeave = Boolean(
+    pressed ??
     resolveExplicitTarget(scenario.blocks, params.subscriber.currentBlockId, params.text),
   );
 
@@ -360,7 +376,8 @@ export async function handleScenarioMessage(params: {
     return handleAnswer(params.bot, params.subscriber, scenario.blocks, current, params.text);
   }
 
-  const target = resolveTarget(scenario.blocks, params.subscriber.currentBlockId, params.text);
+  const target =
+    pressed ?? resolveTarget(scenario.blocks, params.subscriber.currentBlockId, params.text);
   if (!target) return true;
 
   await runChainFor(params, scenario.blocks, target);

@@ -13,6 +13,7 @@ type VkEvent = {
       from_id?: number;
       peer_id?: number;
       text?: string;
+      payload?: string;
       id?: number;
       conversation_message_id?: number;
       attachments?: { type: string; [key: string]: unknown }[];
@@ -66,10 +67,19 @@ export async function POST(
           (message as { attachments?: Parameters<typeof collectVkAttachments>[0] } | undefined)
             ?.attachments,
         );
+        // Нажатая кнопка приходит с payload — по нему различаем одинаковые подписи.
+        let buttonId: string | null = null;
+        try {
+          const payload = JSON.parse((message as { payload?: string } | undefined)?.payload ?? "null");
+          if (payload && typeof payload.button === "string") buttonId = payload.button;
+        } catch {
+          buttonId = null;
+        }
         await handleIncomingMessage({
           bot,
           externalId,
           text: message?.text ?? "",
+          buttonId,
           attachments,
           firstName: profile.firstName ?? null,
           lastName: profile.lastName ?? null,

@@ -59,7 +59,17 @@ function vkKeyboard(buttons: KeyboardButton[]): string {
     buttons: buttons.slice(0, inline ? 10 : 40).map((button) =>
       button.url
         ? [{ action: { type: "open_link", link: button.url, label: button.label.slice(0, 40) } }]
-        : [{ action: { type: "text", label: button.label.slice(0, 40) }, color: "secondary" }],
+        : [
+            {
+              action: {
+                type: "text",
+                label: button.label.slice(0, 40),
+                // По payload различаем кнопки с одинаковым текстом.
+                ...(button.id ? { payload: JSON.stringify({ button: button.id }) } : {}),
+              },
+              color: "secondary",
+            },
+          ],
     ),
   });
 }

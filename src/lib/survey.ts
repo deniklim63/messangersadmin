@@ -52,6 +52,8 @@ type IncomingParams = {
   bot: Bot;
   externalId: string;
   text: string;
+  /** id нажатой инлайн-кнопки сценария (Telegram callback_data). */
+  buttonId?: string | null;
   username?: string | null;
   firstName?: string | null;
   lastName?: string | null;
@@ -116,7 +118,12 @@ export async function handleIncomingMessage(params: IncomingParams) {
       : contact;
 
   // Если у бота включён сценарий — диалог ведёт он.
-  const handledByScenario = await handleScenarioMessage({ bot, subscriber, text });
+  const handledByScenario = await handleScenarioMessage({
+    bot,
+    subscriber,
+    text,
+    buttonId: params.buttonId,
+  });
   if (handledByScenario) return { contact: enriched, subscriber };
 
   if (!bot.collectSurvey) return { contact: enriched, subscriber };

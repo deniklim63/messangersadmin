@@ -76,8 +76,10 @@ export async function POST(
         await handleIncomingMessage({
           bot,
           externalId: String(chatId),
-          // Подменяем текстом кнопки — дальше работает обычная логика переходов.
+          // Подменяем текстом кнопки — дальше работает обычная логика переходов,
+          // а id кнопки нужен, когда у нескольких кнопок одинаковый текст.
           text: button?.label ?? callback.data ?? "",
+          buttonId: button?.id ?? null,
           username: callback.from?.username ?? null,
           firstName: callback.from?.first_name ?? null,
           lastName: callback.from?.last_name ?? null,
