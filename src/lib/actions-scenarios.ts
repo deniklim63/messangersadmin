@@ -536,12 +536,14 @@ export type SendTestState = { ok?: string; error?: string };
 /** Отправляет блок одному человеку — проверить, как выглядит сообщение в мессенджере. */
 export async function sendBlockTo(_state: SendTestState, formData: FormData): Promise<SendTestState> {
   await requireAuth();
-  const blockId = String(formData.get("blockId") ?? "");
+  // Форма редактора держит id блока в поле «id»; из вкладки «Запуск» приходит scenarioId.
+  const blockId = String(formData.get("blockId") ?? formData.get("id") ?? "");
+  const scenarioId = String(formData.get("scenarioId") ?? "");
   const target = String(formData.get("target") ?? "").trim();
   if (!target) return { error: "Укажите ID или @username" };
 
-  const block = await prisma.scenarioBlock.findUnique({
-    where: { id: blockId },
+  const block = await prisma.scenarioBlock.findFirst({
+    where: blockId ? { id: blockId } : { scenarioId, isStart: true },
     include: { buttons: { orderBy: { position: "asc" } }, scenario: { include: { bot: true } } },
   });
   if (!block) return { error: "Блок не найден" };
@@ -575,6 +577,12 @@ export async function sendBlockTo(_state: SendTestState, formData: FormData): Pr
     externalId: subscriber.externalId,
     variables: subscriber.contact.variables,
   });
+  if (scenarioId && !blockId) {
+    // Прогон всего сценария: идём с начала, как будто человек написал боту.
+    const { runFromBlock } = await import("@/lib/scenario");
+    await runFromBlock(subscriber.id, block.id, { force: true });
+    return { ok: `Сценарий запущен для ${subscriber.contact.name ?? subscriber.username ?? subscriber.externalId} — дальше нажимайте кнопки в мессенджере` };
+  }
   const result = await sendBlock(bot, subscriber, block, scope);
   if (!result.ok) return { error: result.error ?? "Не отправилось" };
   return { ok: `Отправлено ${subscriber.contact.name ?? subscriber.username ?? subscriber.externalId}` };

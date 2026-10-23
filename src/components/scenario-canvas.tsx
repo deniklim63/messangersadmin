@@ -284,7 +284,7 @@ export function ScenarioCanvas({
   const linkTo = drag?.kind === "link" ? drag.to : null;
 
   const toolButton =
-    "rounded-lg border border-[var(--line)] bg-white px-2.5 py-1.5 text-sm hover:border-[var(--accent)] hover:text-[var(--accent)]";
+    "whitespace-nowrap rounded-lg border border-[var(--line)] bg-white px-2.5 py-1.5 text-sm hover:border-[var(--accent)] hover:text-[var(--accent)]";
 
   return (
     <div className="relative h-full overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--bg)]">
@@ -642,8 +642,8 @@ export function ScenarioCanvas({
         </div>
       </div>
 
-      <div className="absolute left-3 top-3 flex items-center gap-1.5 rounded-xl border border-[var(--line)] bg-white/95 p-1.5 shadow-sm backdrop-blur">
-        <button type="button" onClick={() => void addBlock()} className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:opacity-90">
+      <div className="absolute left-3 right-3 top-3 flex flex-wrap items-center gap-1.5 rounded-xl border border-[var(--line)] bg-white/95 p-1.5 shadow-sm backdrop-blur xl:right-auto">
+        <button type="button" onClick={() => void addBlock()} className="whitespace-nowrap rounded-lg bg-[var(--accent)] px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:opacity-90">
           + Экран
         </button>
         <span className="mx-1 h-5 w-px bg-[var(--line)]" />

@@ -117,7 +117,7 @@ export function ScenarioWorkspace({
           ))}
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-width:thin]">
           {tab === "assistant" ? (
             <ScenarioAssistant scenarioId={scenarioId} enabled={assistantEnabled} />
           ) : null}

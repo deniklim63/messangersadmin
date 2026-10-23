@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import {
   createSchedule,
   deleteSchedule,
@@ -8,6 +8,7 @@ import {
   toggleSchedule,
   type ScheduleState,
 } from "@/lib/actions-schedules";
+import { sendBlockTo, type SendTestState } from "@/lib/actions-scenarios";
 
 const controlClass =
   "rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--accent)]";
@@ -51,12 +52,46 @@ export function ScenarioSchedules({
   schedules: ScheduleItem[];
 }) {
   const [state, action, pending] = useActionState(createSchedule, {} as ScheduleState);
+  const [testState, testAction, testing] = useActionState(sendBlockTo, {} as SendTestState);
+  const targetRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (targetRef.current && !targetRef.current.value) {
+      targetRef.current.value = localStorage.getItem("testTarget") ?? "";
+    }
+  }, []);
   const [kind, setKind] = useState<"once" | "weekly">("once");
   const [runAtLocal, setRunAtLocal] = useState("");
   const start = blocks.find((block) => block.isStart) ?? blocks[0];
 
   return (
     <section className="p-4">
+      <form action={testAction} className="mb-5 rounded-xl border border-dashed border-[var(--accent)]/50 bg-[var(--accent)]/5 p-3">
+        <input type="hidden" name="scenarioId" value={scenarioId} />
+        <div className="text-sm font-semibold">Прогнать сценарий на себе</div>
+        <p className="mt-0.5 text-xs text-[var(--muted)]">
+          Бот отправит стартовый экран вам, дальше нажимайте кнопки как обычный пользователь.
+          Получатель должен хоть раз написать боту.
+        </p>
+        <div className="mt-2 flex gap-2">
+          <input
+            ref={targetRef}
+            name="target"
+            placeholder="Telegram ID или @username"
+            onChange={(event) => localStorage.setItem("testTarget", event.target.value)}
+            className={`w-full ${controlClass}`}
+          />
+          <button
+            type="submit"
+            disabled={testing || blocks.length === 0}
+            className="shrink-0 rounded-lg bg-[var(--accent)] px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
+          >
+            {testing ? "Запускаю…" : "▶ Запустить"}
+          </button>
+        </div>
+        {testState.ok ? <p className="mt-1 text-xs text-green-700">{testState.ok}</p> : null}
+        {testState.error ? <p className="mt-1 text-xs text-red-600">{testState.error}</p> : null}
+      </form>
+
       <h2 className="text-sm font-semibold">Запуск по расписанию</h2>
       <p className="mt-1 text-xs text-[var(--muted)]">
         В назначенное время бот сам отправит выбранный экран подписчикам, дальше человек идёт
@@ -199,10 +234,10 @@ export function ScenarioSchedules({
 
         <div className="text-sm font-medium">
           Города <span className="font-normal text-[var(--muted)]">(ничего не отмечено — всем)</span>
-          <div className="mt-1 flex flex-wrap gap-1">
+          <div className="mt-1 max-h-36 space-y-0.5 overflow-y-auto rounded-lg border border-[var(--line)] p-2">
             {cities.map((city) => (
-              <label key={city.slug} className="cursor-pointer rounded-lg border border-[var(--line)] px-2 py-1.5 font-normal has-[:checked]:border-[var(--accent)] has-[:checked]:text-[var(--accent)]">
-                <input type="checkbox" name="city" value={city.slug} className="sr-only" />
+              <label key={city.slug} className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 font-normal hover:bg-[var(--bg)]">
+                <input type="checkbox" name="city" value={city.slug} />
                 {city.name}
               </label>
             ))}
