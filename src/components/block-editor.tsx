@@ -1,7 +1,7 @@
 "use client";
 
-import { useActionState, useState } from "react";
-import { testBlock, updateBlock, type TestResult } from "@/lib/actions-scenarios";
+import { useActionState, useEffect, useRef, useState } from "react";
+import { sendBlockTo, testBlock, updateBlock, type SendTestState, type TestResult } from "@/lib/actions-scenarios";
 import { OPERATOR_LABELS, parseRules, type ConditionOperator } from "@/lib/conditions";
 
 const controlClass =
@@ -31,6 +31,7 @@ export type EditorBlock = {
   listLimit: number | null;
   nextBlockId: string | null;
   buttons: { id: string; label: string; targetBlockId: string | null; url: string | null }[];
+  buttonsInline: boolean;
   nextWaypoint?: { x: number; y: number } | null;
 };
 
@@ -55,6 +56,17 @@ export function BlockEditor({ block, blocks }: { block: EditorBlock; blocks: Blo
   });
   const [kind, setKind] = useState<EditorBlock["kind"]>(block.kind);
   const [testState, testAction, testing] = useActionState(testBlock, {} as TestResult);
+  const [sendState, sendAction, sending] = useActionState(sendBlockTo, {} as SendTestState);
+  const [buttonsInline, setButtonsInline] = useState(block.buttonsInline);
+  const targetRef = useRef<HTMLInputElement>(null);
+
+  // Последний адресат теста запоминаем в браузере — подставляем после монтирования,
+  // чтобы серверная и клиентская разметка совпадали.
+  useEffect(() => {
+    if (targetRef.current && !targetRef.current.value) {
+      targetRef.current.value = localStorage.getItem("testTarget") ?? "";
+    }
+  }, []);
   const [rules, setRules] = useState<RuleDraft[]>(() =>
     parseRules(block.conditions).map((rule) => ({
       field: rule.field,
@@ -227,9 +239,45 @@ export function BlockEditor({ block, blocks }: { block: EditorBlock; blocks: Blo
               </button>
             </div>
 
+            <div className="mt-2 flex gap-1 rounded-lg bg-[var(--bg)] p-1 text-sm">
+              {(
+                [
+                  { value: "inline", label: "Под сообщением", hint: "Кнопки прямо в сообщении, как у рассылок" },
+                  { value: "reply", label: "На клавиатуре", hint: "Кнопки внизу экрана, остаются, пока не нажмут" },
+                ] as const
+              ).map((option) => (
+                <label
+                  key={option.value}
+                  title={option.hint}
+                  className={`flex-1 cursor-pointer rounded-md px-3 py-1.5 text-center ${
+                    (buttonsInline ? "inline" : "reply") === option.value
+                      ? "bg-white font-medium shadow-sm"
+                      : "text-[var(--muted)]"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="buttonsInline"
+                    value={option.value}
+                    checked={(buttonsInline ? "inline" : "reply") === option.value}
+                    onChange={() => setButtonsInline(option.value === "inline")}
+                    className="sr-only"
+                  />
+                  {option.label}
+                </label>
+              ))}
+            </div>
             <p className="mt-1 text-xs text-[var(--muted)]">
-              Если указать ссылку, кнопка откроет сайт вместо перехода по сценарию.
+              Кнопка со ссылкой всегда показывается под сообщением.
             </p>
+            {!buttonsInline &&
+            new Set(buttons.map((item) => item.label.trim())).size <
+              buttons.filter((item) => item.label.trim()).length ? (
+              <p className="mt-1 rounded-lg bg-amber-50 px-2 py-1 text-xs text-amber-800">
+                Несколько кнопок с одинаковым текстом: на клавиатуре Telegram различает кнопки
+                только по тексту, и все они поведут в одно место. Выберите «Под сообщением».
+              </p>
+            ) : null}
 
             <div className="mt-2 space-y-2">
               {buttons.map((button, index) => (
@@ -612,6 +660,35 @@ export function BlockEditor({ block, blocks }: { block: EditorBlock; blocks: Blo
               ))}
           </select>
         </label>
+      ) : null}
+
+      {kind === "MESSAGE" || kind === "INPUT" || kind === "HANDOFF" ? (
+        <div className="rounded-xl border border-dashed border-[var(--line)] p-3">
+          <div className="text-sm font-medium">Проверить на себе</div>
+          <p className="mt-0.5 text-xs text-[var(--muted)]">
+            Сначала сохраните блок. Получатель должен хоть раз написать боту.
+          </p>
+          <div className="mt-2 flex gap-2">
+            <input
+              ref={targetRef}
+              name="target"
+              placeholder="Telegram ID или @username"
+              onChange={(event) => localStorage.setItem("testTarget", event.target.value)}
+              className={controlClass}
+            />
+            <button
+              type="submit"
+              formAction={sendAction}
+              formNoValidate
+              disabled={sending}
+              className="shrink-0 rounded-lg border border-[var(--accent)] px-3 py-2 text-sm text-[var(--accent)] hover:bg-[var(--accent)]/10 disabled:opacity-60"
+            >
+              {sending ? "Отправляю…" : "Отправить"}
+            </button>
+          </div>
+          {sendState.ok ? <p className="mt-1 text-xs text-green-700">{sendState.ok}</p> : null}
+          {sendState.error ? <p className="mt-1 text-xs text-red-600">{sendState.error}</p> : null}
+        </div>
       ) : null}
 
       {kind === "REQUEST" || kind === "CODE" || kind === "CONDITION" ? (

@@ -125,6 +125,7 @@ export default async function ScenarioPage({ params }: { params: Promise<{ id: s
           text: block.text,
           imageId: block.imageId,
           isStart: block.isStart,
+          buttonsInline: block.buttonsInline,
           keywords: block.keywords,
           method: block.method,
           url: block.url,

@@ -303,6 +303,9 @@ model ScenarioBlock {
   nextWaypointX Int?
   nextWaypointY Int?
 
+  /// Кнопки под самим сообщением (inline), а не на клавиатуре снизу.
+  buttonsInline Boolean @default(false)
+
   buttons     ScenarioButton[]
   incoming    ScenarioButton[] @relation("ButtonTarget")
   schedules   ScenarioSchedule[]

@@ -13,7 +13,18 @@ const TELEGRAM_CONTACT_KEYBOARD = {
 
 const TELEGRAM_REMOVE_KEYBOARD = { remove_keyboard: true };
 
-export type KeyboardButton = { label: string; url?: string | null; id?: string };
+export type KeyboardButton = {
+  label: string;
+  url?: string | null;
+  id?: string;
+  /** Кнопка под сообщением (inline), а не на клавиатуре снизу. */
+  inline?: boolean;
+};
+
+/** Инлайн нужен, если так настроен блок или среди кнопок есть ссылка. */
+function wantsInline(buttons: KeyboardButton[]): boolean {
+  return buttons.some((button) => button.url || button.inline);
+}
 
 /**
  * Telegram: кнопки-ссылки бывают только в клавиатуре под сообщением,
@@ -34,15 +45,18 @@ function telegramKeyboard(labels: string[]) {
   return {
     keyboard: labels.map((label) => [{ text: label }]),
     resize_keyboard: true,
+    // Прячем после нажатия — иначе старые кнопки висят под следующими экранами.
+    one_time_keyboard: true,
   };
 }
 
 /** ВКонтакте ждёт клавиатуру строкой JSON и не больше 40 кнопок. */
 function vkKeyboard(buttons: KeyboardButton[]): string {
+  const inline = wantsInline(buttons);
   return JSON.stringify({
-    one_time: false,
-    inline: false,
-    buttons: buttons.slice(0, 40).map((button) =>
+    // У инлайн-клавиатуры ВК нет one_time и не больше 10 кнопок.
+    ...(inline ? { inline: true } : { one_time: false, inline: false }),
+    buttons: buttons.slice(0, inline ? 10 : 40).map((button) =>
       button.url
         ? [{ action: { type: "open_link", link: button.url, label: button.label.slice(0, 40) } }]
         : [{ action: { type: "text", label: button.label.slice(0, 40) }, color: "secondary" }],
@@ -68,7 +82,7 @@ export async function sendTelegramMessage(
         reply_markup: options.requestContact
           ? TELEGRAM_CONTACT_KEYBOARD
           : options.keyboard?.length
-            ? options.keyboard.some((button) => button.url)
+            ? wantsInline(options.keyboard)
               ? telegramInlineKeyboard(options.keyboard)
               : telegramKeyboard(options.keyboard.map((button) => button.label))
             : TELEGRAM_REMOVE_KEYBOARD,
@@ -449,7 +463,7 @@ export async function sendTelegramPhotoByRef(
         caption: caption ? caption.slice(0, 1024) : undefined,
         ...(caption && options.html ? { parse_mode: "HTML" } : {}),
         reply_markup: options.keyboard?.length
-          ? options.keyboard.some((button) => button.url)
+          ? wantsInline(options.keyboard)
             ? telegramInlineKeyboard(options.keyboard)
             : telegramKeyboard(options.keyboard.map((button) => button.label))
           : TELEGRAM_REMOVE_KEYBOARD,

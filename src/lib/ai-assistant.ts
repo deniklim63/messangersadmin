@@ -45,6 +45,8 @@ const OperationSchema = z.object({
   keywords: z.array(z.string()).nullable(),
   isStart: z.boolean().nullable(),
   buttons: z.array(ButtonSchema).nullable(),
+  /** Кнопки под сообщением (true) или на клавиатуре снизу (false). */
+  inlineButtons: z.boolean().nullable(),
   /** Куда идти дальше: id или ref. */
   next: nullableText,
   /** Имя приложенного файла-картинки, которую прикрепить к блоку. */
@@ -88,6 +90,7 @@ const SYSTEM_PROMPT = `Ты — помощник в конструкторе с�
 Правила:
 - В тексте можно подставлять переменные: {{name}}, {{city}}, {{phone}}, {{email}}, {{today}}, {{tomorrow}}, {{weekEnd}}. Разметка Telegram: <b>, <i>, <u>, <a href="">. Во ВКонтакте разметка убирается автоматически.
 - Списки из данных запроса: listSource (путь к массиву, например games.games), listTemplate (шаблон одного элемента), listEmpty, listLimit; в тексте — {{list}}.
+- Кнопки могут быть под сообщением (inlineButtons: true — для рассылок и анонсов) или на клавиатуре снизу (false — для меню, где кнопки нужны постоянно).
 - Один стартовый блок (isStart). Ключевые слова keywords запускают блок по сообщению человека.
 - Для новых блоков задавай ref (латиницей, уникально) и ссылайся на него в target/next других операций. На существующие блоки ссылайся по их id.
 - Кнопка «назад в меню» ведёт на стартовый блок существующего сценария, если он есть.
@@ -112,6 +115,7 @@ type ScenarioForPrompt = {
     inputKind: string | null;
     saveAs: string | null;
     hasImage: boolean;
+    inlineButtons: boolean;
   }[];
 };
 
@@ -147,6 +151,7 @@ async function loadScenario(scenarioId: string): Promise<ScenarioForPrompt | nul
       inputKind: block.inputKind,
       saveAs: block.saveAs,
       hasImage: Boolean(block.imageId),
+      inlineButtons: block.buttonsInline,
     })),
   };
 }
@@ -266,6 +271,7 @@ export async function applyOperations(
         ...(op.text !== null ? { text: op.text } : {}),
         ...(op.keywords ? { keywords: op.keywords } : {}),
         ...(op.isStart !== null ? { isStart: op.isStart } : {}),
+        ...(op.inlineButtons !== null ? { buttonsInline: op.inlineButtons } : {}),
         ...(op.next !== null ? { nextBlockId: resolve(op.next) } : {}),
         ...(imageId !== undefined ? { imageId } : {}),
         ...(op.inputKind ? { inputKind: op.inputKind } : {}),
@@ -348,6 +354,7 @@ const GEMINI_SCHEMA = (() => {
     text,
     keywords: { type: "ARRAY", items: { type: "STRING" }, nullable: true },
     isStart: { type: "BOOLEAN", nullable: true },
+    inlineButtons: { type: "BOOLEAN", nullable: true },
     buttons: { type: "ARRAY", items: button, nullable: true },
     next: text,
     imageFile: text,

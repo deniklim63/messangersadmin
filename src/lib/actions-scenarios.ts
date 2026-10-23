@@ -208,6 +208,7 @@ export async function updateBlock(_state: State, formData: FormData): Promise<St
       listEmpty: String(formData.get("listEmpty") ?? "").trim() || null,
       listLimit: Number(formData.get("listLimit")) || null,
       nextBlockId: String(formData.get("nextBlockId") ?? "").trim() || null,
+      buttonsInline: formData.get("buttonsInline") === "inline",
       ...(imageId === undefined ? {} : { imageId }),
     },
   });
@@ -528,4 +529,53 @@ export async function saveLinkWaypoint(
     },
   });
   revalidatePath(`/scenarios/${block.scenarioId}`);
+}
+
+export type SendTestState = { ok?: string; error?: string };
+
+/** Отправляет блок одному человеку — проверить, как выглядит сообщение в мессенджере. */
+export async function sendBlockTo(_state: SendTestState, formData: FormData): Promise<SendTestState> {
+  await requireAuth();
+  const blockId = String(formData.get("blockId") ?? "");
+  const target = String(formData.get("target") ?? "").trim();
+  if (!target) return { error: "Укажите ID или @username" };
+
+  const block = await prisma.scenarioBlock.findUnique({
+    where: { id: blockId },
+    include: { buttons: { orderBy: { position: "asc" } }, scenario: { include: { bot: true } } },
+  });
+  if (!block) return { error: "Блок не найден" };
+  const bot = block.scenario.bot;
+
+  const subscriber = await prisma.subscriber.findFirst({
+    where: {
+      botId: bot.id,
+      ...(/^\d+$/.test(target)
+        ? { externalId: target }
+        : { username: { equals: target.replace(/^@/, ""), mode: "insensitive" } }),
+    },
+    include: { contact: { include: { city: true } } },
+  });
+  if (!subscriber) {
+    return {
+      error: /^\d+$/.test(target)
+        ? "Такого ID среди пользователей бота нет — сначала напишите боту что-нибудь"
+        : "Такого @username среди пользователей бота нет — напишите боту, и он появится",
+    };
+  }
+
+  const { buildScope } = await import("@/lib/template");
+  const { sendBlock } = await import("@/lib/scenario");
+  const scope = buildScope({
+    name: subscriber.contact.name,
+    phone: subscriber.contact.phone,
+    email: subscriber.contact.email,
+    city: subscriber.contact.city?.name,
+    username: subscriber.username,
+    externalId: subscriber.externalId,
+    variables: subscriber.contact.variables,
+  });
+  const result = await sendBlock(bot, subscriber, block, scope);
+  if (!result.ok) return { error: result.error ?? "Не отправилось" };
+  return { ok: `Отправлено ${subscriber.contact.name ?? subscriber.username ?? subscriber.externalId}` };
 }

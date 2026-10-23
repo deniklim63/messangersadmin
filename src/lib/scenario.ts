@@ -26,6 +26,7 @@ type ScenarioBlock = {
   kind: "MESSAGE" | "REQUEST" | "CODE" | "CONDITION" | "DELAY" | "HANDOFF" | "INPUT";
   text: string;
   imageId: string | null;
+  buttonsInline?: boolean;
   method: string | null;
   url: string | null;
   headers: unknown;
@@ -98,6 +99,7 @@ export async function sendBlock(
   const text = bot.platform === "TELEGRAM" ? toTelegramHtml(raw) : toPlainText(raw);
   const keyboard = block.buttons.map((button) => ({
     id: button.id,
+    inline: block.buttonsInline ?? false,
     label: toPlainText(render(button.label, scope)),
     url: button.url ? render(button.url, scope) : null,
   }));
