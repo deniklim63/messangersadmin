@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { releaseToBot, resetDialog, sendToSubscriber } from "@/lib/actions-messages";
+import { markAllRead, releaseToBot, resetDialog, sendToSubscriber } from "@/lib/actions-messages";
 import { AttachmentList } from "@/components/attachment-list";
 import { FormatToolbar } from "@/components/format-toolbar";
 import { useInboxEvents } from "@/components/use-inbox-events";
@@ -140,14 +140,30 @@ export function Inbox({
             placeholder="Поиск по диалогам"
             className="w-full rounded-lg border border-[var(--line)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
           />
-          <label className="flex items-center gap-2 text-xs text-[var(--muted)]">
-            <input
-              type="checkbox"
-              checked={onlyUnread}
-              onChange={(event) => setOnlyUnread(event.target.checked)}
-            />
-            Только непрочитанные
-          </label>
+          <div className="flex items-center justify-between gap-2">
+            <label className="flex items-center gap-2 text-xs text-[var(--muted)]">
+              <input
+                type="checkbox"
+                checked={onlyUnread}
+                onChange={(event) => setOnlyUnread(event.target.checked)}
+              />
+              Только непрочитанные
+            </label>
+            {conversations.some((item) => item.unread > 0) ? (
+              <button
+                type="button"
+                onClick={async () => {
+                  await markAllRead();
+                  setConversations((list) => list.map((item) => ({ ...item, unread: 0 })));
+                  await loadList();
+                }}
+                className="text-xs text-[var(--accent)] hover:underline"
+                title="Снять отметку «непрочитано» со всех диалогов"
+              >
+                Прочитать все
+              </button>
+            ) : null}
+          </div>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto">

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { storeFile, type Attachment } from "@/lib/attachments";
 import { requireAuth } from "@/lib/auth";
+import { markAllRead as markAllReadInbox } from "@/lib/inbox";
 import { logMessage } from "@/lib/contacts";
 import { prisma } from "@/lib/db";
 import { isBlankMessage, TELEGRAM_CAPTION_LIMIT, toPlainText, toTelegramHtml } from "@/lib/message-format";
@@ -186,5 +187,12 @@ export async function releaseToBot(formData: FormData): Promise<void> {
     data: { needsOperator: false, operatorSince: null },
   });
 
+  revalidatePath("/inbox");
+}
+
+/** Кнопка «Прочитать все» во «Входящих». */
+export async function markAllRead(): Promise<void> {
+  await requireAuth();
+  await markAllReadInbox();
   revalidatePath("/inbox");
 }

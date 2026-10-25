@@ -94,6 +94,21 @@ export async function markRead(subscriberId: string): Promise<void> {
   if (hadUnread) notifyRead(subscriberId);
 }
 
+/** Помечает прочитанными все диалоги разом — чтобы счётчик в меню не висел. */
+export async function markAllRead(): Promise<number> {
+  const now = new Date();
+  const result = await prisma.subscriber.updateMany({
+    where: {
+      messages: {
+        some: { direction: "IN" },
+      },
+    },
+    data: { lastReadAt: now },
+  });
+  notifyRead("*");
+  return result.count;
+}
+
 export type ChatMessage = {
   id: string;
   direction: "IN" | "OUT";
