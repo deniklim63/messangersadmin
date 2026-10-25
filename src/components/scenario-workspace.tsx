@@ -5,7 +5,7 @@ import { useState, useTransition } from "react";
 import { createBlockAt, duplicateBlock, removeBlock } from "@/lib/actions-scenarios";
 import { BlockEditor, type EditorBlock } from "@/components/block-editor";
 import { ScenarioAssistant } from "@/components/scenario-assistant";
-import { ScenarioCanvas, type CanvasBlock } from "@/components/scenario-canvas";
+import { ScenarioCanvas, type CanvasBlock, type CanvasStats } from "@/components/scenario-canvas";
 import { ScenarioSchedules, type ScheduleItem } from "@/components/scenario-schedules";
 
 export type WorkspaceBlock = CanvasBlock & EditorBlock;
@@ -28,12 +28,14 @@ export function ScenarioWorkspace({
   assistantEnabled,
   cities,
   schedules,
+  stats,
 }: {
   scenarioId: string;
   blocks: WorkspaceBlock[];
   assistantEnabled: boolean;
   cities: { slug: string; name: string }[];
   schedules: ScheduleItem[];
+  stats: CanvasStats;
 }) {
   const router = useRouter();
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -87,6 +89,7 @@ export function ScenarioWorkspace({
           selectedId={selectedId}
           onSelect={select}
           onDuplicate={duplicate}
+          stats={stats}
         />
       </div>
 
@@ -190,6 +193,7 @@ export function ScenarioWorkspace({
                       <span className="shrink-0 text-xs text-[var(--muted)]">
                         {KIND_LABEL[block.kind] ?? block.kind}
                         {block.buttons.length ? ` · ${block.buttons.length} кн.` : ""}
+                        {stats[block.id]?.sent ? ` · ✓ ${stats[block.id].sent}` : ""}
                       </span>
                     </button>
                   </li>

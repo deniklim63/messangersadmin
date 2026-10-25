@@ -22,6 +22,11 @@ import {
   TEXT_HEIGHT,
 } from "@/lib/scenario-layout";
 
+export type CanvasStats = Record<
+  string,
+  { sent: number; errors: number; clicks: Record<string, number>; lastError: string | null }
+>;
+
 export type CanvasBlock = {
   id: string;
   kind: "MESSAGE" | "REQUEST" | "CODE" | "CONDITION" | "DELAY" | "HANDOFF" | "INPUT";
@@ -71,12 +76,14 @@ export function ScenarioCanvas({
   selectedId,
   onSelect,
   onDuplicate,
+  stats = {},
 }: {
   scenarioId: string;
   blocks: CanvasBlock[];
   selectedId: string | null;
   onSelect: (id: string | null) => void;
   onDuplicate: (id: string) => void;
+  stats?: CanvasStats;
 }) {
   const router = useRouter();
   const surfaceRef = useRef<HTMLDivElement>(null);
@@ -559,6 +566,22 @@ export function ScenarioCanvas({
                 >
                   <span className="truncate text-[13px] font-semibold">{block.title}</span>
                   <span className="flex shrink-0 items-center gap-1">
+                    {stats[block.id]?.sent ? (
+                      <span
+                        title={`Доставлено ${stats[block.id].sent} чел.`}
+                        className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] tabular-nums text-emerald-700"
+                      >
+                        ✓ {stats[block.id].sent}
+                      </span>
+                    ) : null}
+                    {stats[block.id]?.errors ? (
+                      <span
+                        title={`Не доставлено ${stats[block.id].errors}${stats[block.id].lastError ? `: ${stats[block.id].lastError}` : ""}`}
+                        className="rounded bg-red-50 px-1.5 py-0.5 text-[10px] tabular-nums text-red-700"
+                      >
+                        ⚠ {stats[block.id].errors}
+                      </span>
+                    ) : null}
                     <button
                       type="button"
                       title="Дублировать экран"
@@ -609,8 +632,17 @@ export function ScenarioCanvas({
                     className="relative flex items-center px-3"
                     style={{ height: BUTTON_HEIGHT }}
                   >
-                    <span className="w-full truncate rounded-md border border-[var(--line)] px-2 py-0.5 text-[11px]">
-                      {button.label}
+                    <span className="flex w-full items-center gap-1 rounded-md border border-[var(--line)] px-2 py-0.5 text-[11px]">
+                      <span className="min-w-0 flex-1 truncate">{button.label}</span>
+                      {stats[block.id]?.sent ? (
+                        <span
+                          className="shrink-0 rounded bg-[var(--bg)] px-1 text-[10px] tabular-nums text-[var(--muted)]"
+                          title="Нажали · доля от получивших"
+                        >
+                          {stats[block.id].clicks[button.id] ?? 0} ·{" "}
+                          {Math.round(((stats[block.id].clicks[button.id] ?? 0) / stats[block.id].sent) * 100)}%
+                        </span>
+                      ) : null}
                     </span>
                     <span
                       title="Потяните к нужному экрану"

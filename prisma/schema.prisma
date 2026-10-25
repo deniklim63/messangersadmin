@@ -309,6 +309,7 @@ model ScenarioBlock {
   buttons     ScenarioButton[]
   incoming    ScenarioButton[] @relation("ButtonTarget")
   schedules   ScenarioSchedule[]
+  events      ScenarioEvent[]
   subscribers Subscriber[]
 
   createdAt DateTime @default(now())
@@ -411,4 +412,22 @@ model ScenarioSchedule {
   createdAt DateTime @default(now())
 
   @@index([isActive, nextRunAt])
+}
+
+/// Событие сценария для аналитики: экран доставлен / не доставлен / нажата кнопка.
+model ScenarioEvent {
+  id      String        @id @default(cuid())
+  blockId String
+  block   ScenarioBlock @relation(fields: [blockId], references: [id], onDelete: Cascade)
+  /// Для нажатий — какая кнопка.
+  buttonId     String?
+  subscriberId String?
+  /// sent — доставлено, error — не доставлено, click — нажатие кнопки.
+  kind  String
+  error String?
+
+  createdAt DateTime @default(now())
+
+  @@index([blockId, kind])
+  @@index([buttonId])
 }

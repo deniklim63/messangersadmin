@@ -13,6 +13,7 @@ import { runUserCode } from "@/lib/run-code";
 import { runRequest } from "@/lib/run-request";
 import { parseInput, type InputKind, type ParsedInput } from "@/lib/input-parse";
 import { validateCity } from "@/lib/cities";
+import { getSetting, SETTING_LINK_TRACKING } from "@/lib/settings";
 import { ingestContact } from "@/lib/contacts";
 import { buildScope, render, renderMessage, type VariableScope } from "@/lib/template";
 
@@ -97,11 +98,20 @@ export async function sendBlock(
   const raw = renderMessage(block.text, block, scope);
   // В Telegram отдаём разметку, во ВКонтакте — чистый текст: там оформления нет.
   const text = bot.platform === "TELEGRAM" ? toTelegramHtml(raw) : toPlainText(raw);
+  // Ссылки заворачиваем через свой редирект — так видно, сколько человек перешло.
+  const trackLinks =
+    block.buttons.some((button) => button.url) &&
+    (await getSetting(SETTING_LINK_TRACKING)) !== "off";
+  const base = (process.env.APP_URL ?? "").replace(/\/$/, "");
   const keyboard = block.buttons.map((button) => ({
     id: button.id,
     inline: block.buttonsInline ?? false,
     label: toPlainText(render(button.label, scope)),
-    url: button.url ? render(button.url, scope) : null,
+    url: button.url
+      ? trackLinks && base.startsWith("https://")
+        ? `${base}/api/r/${button.id}/${subscriber.id}`
+        : render(button.url, scope)
+      : null,
   }));
   let error: string | undefined;
   let textSent = false;
@@ -187,7 +197,54 @@ export async function sendBlock(
     });
   }
 
+  await prisma.scenarioEvent
+    .create({
+      data: {
+        blockId: block.id,
+        subscriberId: subscriber.id,
+        kind: error ? "error" : "sent",
+        error: error?.slice(0, 300) ?? null,
+      },
+    })
+    .catch(() => null);
+
   return { ok: !error, error };
+}
+
+/** Запоминает нажатие кнопки сценария — для аналитики на схеме. */
+export async function recordButtonClick(
+  blocks: ScenarioBlock[],
+  subscriberId: string,
+  currentBlockId: string | null,
+  text: string,
+  buttonId?: string | null,
+): Promise<void> {
+  const needle = text.trim().toLowerCase();
+  let found: { id: string; blockId: string } | null = null;
+  if (buttonId) {
+    for (const block of blocks) {
+      const button = block.buttons.find((item) => item.id === buttonId);
+      if (button) found = { id: button.id, blockId: block.id };
+    }
+  }
+  if (!found && needle) {
+    // Сначала кнопки текущего экрана, потом любого другого.
+    const ordered = [
+      ...blocks.filter((block) => block.id === currentBlockId),
+      ...blocks.filter((block) => block.id !== currentBlockId),
+    ];
+    for (const block of ordered) {
+      const button = block.buttons.find((item) => item.label.trim().toLowerCase() === needle);
+      if (button) {
+        found = { id: button.id, blockId: block.id };
+        break;
+      }
+    }
+  }
+  if (!found) return;
+  await prisma.scenarioEvent
+    .create({ data: { blockId: found.blockId, buttonId: found.id, subscriberId, kind: "click" } })
+    .catch(() => null);
 }
 
 /** Сохраняет посчитанные переменные в карточке человека. */
@@ -336,6 +393,7 @@ export async function handleScenarioMessage(params: {
       return handleAnswer(params.bot, params.subscriber, own.blocks, ownCurrent, params.text);
     }
     if (ownTarget && !params.subscriber.needsOperator) {
+      await recordButtonClick(own.blocks, params.subscriber.id, params.subscriber.currentBlockId, params.text, params.buttonId);
       await runChainFor(params, own.blocks, ownTarget);
       return true;
     }
@@ -379,6 +437,8 @@ export async function handleScenarioMessage(params: {
   const target =
     pressed ?? resolveTarget(scenario.blocks, params.subscriber.currentBlockId, params.text);
   if (!target) return true;
+
+  await recordButtonClick(scenario.blocks, params.subscriber.id, params.subscriber.currentBlockId, params.text, params.buttonId);
 
   await runChainFor(params, scenario.blocks, target);
   return true;
