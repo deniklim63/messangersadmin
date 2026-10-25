@@ -7,6 +7,7 @@ const TICK_MS = 5000;
 const BATCH = 20;
 
 let started = false;
+let ticks = 0;
 
 /** Выполняет отложенные шаги, у которых подошло время. */
 export async function processDueSteps(): Promise<number> {
@@ -65,6 +66,34 @@ export async function processDueBroadcasts(): Promise<number> {
   return started;
 }
 
+const OPERATOR_IDLE_HOURS = 24;
+
+/**
+ * Диалоги, переданные оператору, сами возвращаются боту, если сутки никто
+ * ничего не писал — иначе человек навсегда остаётся «без бота».
+ */
+export async function releaseIdleOperatorDialogs(): Promise<number> {
+  const threshold = new Date(Date.now() - OPERATOR_IDLE_HOURS * 3_600_000);
+  const waiting = await prisma.subscriber.findMany({
+    where: { needsOperator: true, operatorSince: { lt: threshold } },
+    select: { id: true },
+  });
+  let released = 0;
+  for (const { id } of waiting) {
+    const recent = await prisma.message.findFirst({
+      where: { subscriberId: id, createdAt: { gt: threshold } },
+      select: { id: true },
+    });
+    if (recent) continue;
+    await prisma.subscriber.update({
+      where: { id },
+      data: { needsOperator: false, operatorSince: null },
+    });
+    released += 1;
+  }
+  return released;
+}
+
 /** Запускает фоновый цикл один раз на процесс. */
 export function startScheduler(): void {
   if (started) return;
@@ -80,5 +109,12 @@ export function startScheduler(): void {
     void processDueSchedules().catch((error) => {
       console.error("Планировщик сценариев:", (error as Error).message);
     });
+    // Раз в пять минут — чаще незачем.
+    ticks += 1;
+    if (ticks % 60 === 1) {
+      void releaseIdleOperatorDialogs().catch((error) => {
+        console.error("Возврат диалогов боту:", (error as Error).message);
+      });
+    }
   }, TICK_MS);
 }
