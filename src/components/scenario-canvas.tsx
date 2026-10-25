@@ -77,6 +77,8 @@ export function ScenarioCanvas({
   onSelect,
   onDuplicate,
   stats = {},
+  readOnly = false,
+  onStat,
 }: {
   scenarioId: string;
   blocks: CanvasBlock[];
@@ -84,7 +86,14 @@ export function ScenarioCanvas({
   onSelect: (id: string | null) => void;
   onDuplicate: (id: string) => void;
   stats?: CanvasStats;
+  /** Режим аналитики: двигать можно, менять — нет. */
+  readOnly?: boolean;
+  /** Клик по цифре: кто получил / не получил / нажал. */
+  onStat?: (blockId: string, buttonId: string | null, kind: "sent" | "error" | "click") => void;
 }) {
+  const statButton =
+    "rounded px-1.5 py-0.5 text-[10px] tabular-nums " +
+    (onStat ? "cursor-pointer hover:ring-2 hover:ring-[var(--accent)]/30 " : "");
   const router = useRouter();
   const surfaceRef = useRef<HTMLDivElement>(null);
 
@@ -568,8 +577,13 @@ export function ScenarioCanvas({
                   <span className="flex shrink-0 items-center gap-1">
                     {stats[block.id]?.sent ? (
                       <span
-                        title={`Доставлено ${stats[block.id].sent} чел.`}
-                        className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] tabular-nums text-emerald-700"
+                        title={`Доставлено ${stats[block.id].sent} чел. — нажмите, чтобы увидеть кого`}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onStat?.(block.id, null, "sent");
+                        }}
+                        className={`${statButton} bg-emerald-50 text-emerald-700`}
                       >
                         ✓ {stats[block.id].sent}
                       </span>
@@ -577,11 +591,17 @@ export function ScenarioCanvas({
                     {stats[block.id]?.errors ? (
                       <span
                         title={`Не доставлено ${stats[block.id].errors}${stats[block.id].lastError ? `: ${stats[block.id].lastError}` : ""}`}
-                        className="rounded bg-red-50 px-1.5 py-0.5 text-[10px] tabular-nums text-red-700"
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onStat?.(block.id, null, "error");
+                        }}
+                        className={`${statButton} bg-red-50 text-red-700`}
                       >
                         ⚠ {stats[block.id].errors}
                       </span>
                     ) : null}
+                    {readOnly ? null : (
                     <button
                       type="button"
                       title="Дублировать экран"
@@ -594,6 +614,7 @@ export function ScenarioCanvas({
                     >
                       ⧉
                     </button>
+                    )}
                     {block.kind !== "MESSAGE" ? (
                       <span
                         className={`rounded px-1.5 py-0.5 text-[10px] ${KIND_BADGE[block.kind].className}`}
@@ -636,14 +657,20 @@ export function ScenarioCanvas({
                       <span className="min-w-0 flex-1 truncate">{button.label}</span>
                       {stats[block.id]?.sent ? (
                         <span
-                          className="shrink-0 rounded bg-[var(--bg)] px-1 text-[10px] tabular-nums text-[var(--muted)]"
-                          title="Нажали · доля от получивших"
+                          className={`shrink-0 ${statButton} bg-[var(--bg)] text-[var(--muted)]`}
+                          title="Нажали · доля от получивших — нажмите, чтобы увидеть кого"
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onStat?.(block.id, button.id, "click");
+                          }}
                         >
                           {stats[block.id].clicks[button.id] ?? 0} ·{" "}
                           {Math.round(((stats[block.id].clicks[button.id] ?? 0) / stats[block.id].sent) * 100)}%
                         </span>
                       ) : null}
                     </span>
+                    {readOnly ? null : (
                     <span
                       title="Потяните к нужному экрану"
                       onPointerDown={(event) => {
@@ -664,6 +691,7 @@ export function ScenarioCanvas({
                             : "bg-slate-400"
                       }`}
                     />
+                    )}
                   </div>
                 ))}
 
@@ -675,16 +703,22 @@ export function ScenarioCanvas({
       </div>
 
       <div className="absolute left-3 right-3 top-3 flex flex-wrap items-center gap-1.5 rounded-xl border border-[var(--line)] bg-white/95 p-1.5 shadow-sm backdrop-blur xl:right-auto">
-        <button type="button" onClick={() => void addBlock()} className="whitespace-nowrap rounded-lg bg-[var(--accent)] px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:opacity-90">
-          + Экран
-        </button>
-        <span className="mx-1 h-5 w-px bg-[var(--line)]" />
+        {readOnly ? null : (
+          <>
+            <button type="button" onClick={() => void addBlock()} className="whitespace-nowrap rounded-lg bg-[var(--accent)] px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:opacity-90">
+              + Экран
+            </button>
+            <span className="mx-1 h-5 w-px bg-[var(--line)]" />
+          </>
+        )}
         <button type="button" onClick={fitView} title="Показать всю схему" className={toolButton}>
           ⤢ Вся схема
         </button>
-        <button type="button" onClick={() => void relayout()} title="Расставить экраны автоматически" className={toolButton}>
-          ✦ Разложить
-        </button>
+        {readOnly ? null : (
+          <button type="button" onClick={() => void relayout()} title="Расставить экраны автоматически" className={toolButton}>
+            ✦ Разложить
+          </button>
+        )}
         <button
           type="button"
           onClick={() => setShowReturns((current) => !current)}

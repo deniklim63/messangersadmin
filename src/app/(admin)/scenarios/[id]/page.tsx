@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ScenarioWorkspace } from "@/components/scenario-workspace";
-import { scenarioStats } from "@/lib/scenario-stats";
+import { scenarioStats, scenarioTotals } from "@/lib/scenario-stats";
 import { deleteScenario, moveScenario, toggleScenario } from "@/lib/actions-scenarios";
 import { prisma } from "@/lib/db";
 import { getSetting, SETTING_ANTHROPIC_KEY, SETTING_GEMINI_KEY } from "@/lib/settings";
@@ -24,10 +24,11 @@ export default async function ScenarioPage({ params }: { params: Promise<{ id: s
   });
   if (!scenario) notFound();
 
-  const [assistantKey, geminiKey, stats, cities, schedules] = await Promise.all([
+  const [assistantKey, geminiKey, stats, totals, cities, schedules] = await Promise.all([
     getSetting(SETTING_ANTHROPIC_KEY),
     getSetting(SETTING_GEMINI_KEY),
     scenarioStats(id),
+    scenarioTotals(id),
     prisma.city.findMany({ orderBy: { name: "asc" } }),
     prisma.scenarioSchedule.findMany({
       where: { scenarioId: id },
@@ -107,6 +108,7 @@ export default async function ScenarioPage({ params }: { params: Promise<{ id: s
         scenarioId={scenario.id}
         assistantEnabled={Boolean(assistantKey || geminiKey)}
         stats={stats}
+        totals={totals}
         cities={cities.map((city) => ({ slug: city.slug, name: city.name }))}
         schedules={schedules.map((item) => ({
           id: item.id,

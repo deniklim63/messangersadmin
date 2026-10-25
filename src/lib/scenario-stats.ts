@@ -8,6 +8,21 @@ export type BlockStats = {
   lastError: string | null;
 };
 
+export type ScenarioTotals = { reached: number; clicked: number; errors: number };
+
+/** Итоги по сценарию: сколько людей охвачено, сколько нажимали кнопки, сколько ошибок. */
+export async function scenarioTotals(scenarioId: string): Promise<ScenarioTotals> {
+  const blocks = await prisma.scenarioBlock.findMany({ where: { scenarioId }, select: { id: true } });
+  const ids = blocks.map((block) => block.id);
+  if (ids.length === 0) return { reached: 0, clicked: 0, errors: 0 };
+  const [reached, clicked, errors] = await Promise.all([
+    prisma.scenarioEvent.findMany({ where: { blockId: { in: ids }, kind: "sent" }, distinct: ["subscriberId"], select: { subscriberId: true } }),
+    prisma.scenarioEvent.findMany({ where: { blockId: { in: ids }, kind: "click" }, distinct: ["subscriberId"], select: { subscriberId: true } }),
+    prisma.scenarioEvent.findMany({ where: { blockId: { in: ids }, kind: "error" }, distinct: ["subscriberId"], select: { subscriberId: true } }),
+  ]);
+  return { reached: reached.length, clicked: clicked.length, errors: errors.length };
+}
+
 /** Сводка по экранам сценария: доставлено, ошибки, нажатия кнопок (уникальные люди). */
 export async function scenarioStats(scenarioId: string): Promise<Record<string, BlockStats>> {
   const blocks = await prisma.scenarioBlock.findMany({

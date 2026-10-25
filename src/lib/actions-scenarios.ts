@@ -587,3 +587,64 @@ export async function sendBlockTo(_state: SendTestState, formData: FormData): Pr
   if (!result.ok) return { error: result.error ?? "Не отправилось" };
   return { ok: `Отправлено ${subscriber.contact.name ?? subscriber.username ?? subscriber.externalId}` };
 }
+
+export type AudienceRow = {
+  subscriberId: string;
+  contactId: string | null;
+  name: string | null;
+  username: string | null;
+  email: string | null;
+  phone: string | null;
+  externalId: string;
+  at: string;
+  error: string | null;
+};
+
+/** Кто получил экран / не получил / нажал кнопку — для всплывающего списка в аналитике. */
+export async function blockAudience(params: {
+  blockId: string;
+  buttonId?: string | null;
+  kind: "sent" | "error" | "click";
+}): Promise<{ rows: AudienceRow[]; total: number }> {
+  await requireAuth();
+  const events = await prisma.scenarioEvent.findMany({
+    where: {
+      blockId: params.blockId,
+      kind: params.kind,
+      ...(params.buttonId ? { buttonId: params.buttonId } : {}),
+    },
+    orderBy: { createdAt: "desc" },
+    select: { subscriberId: true, createdAt: true, error: true },
+  });
+
+  // Один человек — одна строка, по последнему событию.
+  const latest = new Map<string, { at: Date; error: string | null }>();
+  for (const event of events) {
+    if (!event.subscriberId || latest.has(event.subscriberId)) continue;
+    latest.set(event.subscriberId, { at: event.createdAt, error: event.error });
+  }
+  const ids = [...latest.keys()];
+  const subscribers = await prisma.subscriber.findMany({
+    where: { id: { in: ids.slice(0, 1000) } },
+    include: { contact: true },
+  });
+  const byId = new Map(subscribers.map((item) => [item.id, item]));
+  const rows: AudienceRow[] = ids
+    .map((id) => {
+      const subscriber = byId.get(id);
+      const meta = latest.get(id)!;
+      return {
+        subscriberId: id,
+        contactId: subscriber?.contactId ?? null,
+        name: subscriber?.contact.name ?? null,
+        username: subscriber?.username ?? null,
+        email: subscriber?.contact.email ?? null,
+        phone: subscriber?.contact.phone ?? null,
+        externalId: subscriber?.externalId ?? "—",
+        at: meta.at.toISOString(),
+        error: meta.error,
+      };
+    })
+    .filter((row) => row.externalId !== "—" || row.error);
+  return { rows, total: ids.length };
+}
