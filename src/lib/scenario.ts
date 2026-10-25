@@ -436,7 +436,24 @@ export async function handleScenarioMessage(params: {
 
   const target =
     pressed ?? resolveTarget(scenario.blocks, params.subscriber.currentBlockId, params.text);
-  if (!target) return true;
+
+  if (!target) {
+    // Человек не нажал кнопку, а сразу написал ответ (e-mail, телефон, дату),
+    // который ждёт вопрос за одной из кнопок текущего экрана — принимаем его как ответ.
+    const answerable = (current?.buttons ?? [])
+      .map((button) => scenario.blocks.find((block) => block.id === button.targetBlockId))
+      .find(
+        (block) =>
+          block?.kind === "INPUT" &&
+          ["email", "phone", "date"].includes(block.inputKind ?? "") &&
+          parseInput((block.inputKind ?? "text") as InputKind, params.text).ok,
+      );
+    if (answerable) {
+      await recordButtonClick(scenario.blocks, params.subscriber.id, params.subscriber.currentBlockId, params.text, params.buttonId);
+      return handleAnswer(params.bot, params.subscriber, scenario.blocks, answerable, params.text);
+    }
+    return true;
+  }
 
   await recordButtonClick(scenario.blocks, params.subscriber.id, params.subscriber.currentBlockId, params.text, params.buttonId);
 
