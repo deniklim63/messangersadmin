@@ -28,6 +28,8 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
       AUTH_SECRET: ${AUTH_SECRET}
       APP_URL: ${APP_URL}
+      # Ключ Gemini для AI-ответов; пустой — ключ берётся из «Настроек» админки.
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
     # Наружу не публикуем — только nginx на хосте ходит в этот порт.
     ports:
       - "127.0.0.1:3300:3000"
