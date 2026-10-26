@@ -26,6 +26,9 @@
   Переменные `{{name}}`, `{{city}}`, списки из ответа API, даты
   (`{{today}}`, `{{weekEnd}}`…). Сценарий привязан к боту, один активный на бота.
 - **Аналитика.** Графики по каждому боту: пользователи, подписки, отписки, фильтр по дате.
+- **AI-ответы.** Google Gemini отвечает на свободные вопросы людей в характере бота и по базе
+  знаний; включается в карточке бота. Тон и знания Хоуми для «Квиз, плиз! Хоум» — в папке
+  `home/` (см. `home/README.md`).
 
 ## Запуск
 
@@ -62,6 +65,7 @@ npm run dev          # http://localhost:3100
 | `AUTH_SECRET` | подпись сессионной cookie, в проде: `openssl rand -hex 32` |
 | `APP_URL` | публичный адрес — из него строится webhook-URL для ботов |
 | `POSTGRES_PASSWORD` | только для прода (`docker-compose.prod.yml`) |
+| `GEMINI_API_KEY` | ключ Google Gemini для AI-ответов, если не задан в «Настройках» |
 
 ## Как подключить Telegram-бота
 
@@ -107,6 +111,7 @@ curl -X POST https://<APP_URL>/api/ingest \
 | Склейка контактов, нормализация | `src/lib/contacts.ts`, `src/lib/extract.ts`, `src/lib/cities.ts` |
 | Анкета (если включена) | `src/lib/survey.ts` |
 | Движок сценариев | `src/lib/scenario.ts`, переходы — `src/lib/scenario-routing.ts`, шаблоны — `src/lib/scenario-template.ts` |
+| AI-ответы (Gemini) | `src/lib/ai-reply.ts`, тексты по умолчанию — `home/tov.md`, `home/knowledge.md` |
 | Конструктор сценариев | `src/components/scenario-canvas.tsx`, `block-editor.tsx`, геометрия — `src/lib/scenario-layout.ts` |
 | Вызовы Telegram и ВК | `src/lib/platforms.ts`, вложения — `src/lib/attachments.ts` |
 | Приём вебхуков | `src/app/api/webhooks/*` |

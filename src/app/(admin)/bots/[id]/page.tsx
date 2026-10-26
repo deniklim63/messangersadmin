@@ -1,10 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { BotAiForm } from "@/components/bot-ai-form";
 import { BotSettingsForm, TelegramWebhookButtons, VkConnectButton } from "@/components/bot-settings-form";
 import { CopyField } from "@/components/copy-field";
 import { SendTestForm } from "@/components/send-message-form";
 import { deleteBot } from "@/lib/actions-bots";
+import { AI_MODELS, DEFAULT_AI_MODEL, readHomeDoc } from "@/lib/ai-reply";
 import { prisma } from "@/lib/db";
+import { getGeminiKey } from "@/lib/settings";
 import { getTelegramWebhookInfo, getVkTokenPermissions } from "@/lib/platforms";
 import { webhookUrl } from "@/lib/webhook-url";
 
@@ -27,6 +30,11 @@ export default async function BotPage({ params }: { params: Promise<{ id: string
   const connected = info?.url === url;
   const vkPermissions =
     bot.platform === "VK" && bot.token ? await getVkTokenPermissions(bot.token) : null;
+  const [geminiKey, tovDefault, knowledgeDefault] = await Promise.all([
+    getGeminiKey(),
+    readHomeDoc("tov"),
+    readHomeDoc("knowledge"),
+  ]);
 
   return (
     <div className="max-w-4xl space-y-6">
@@ -156,6 +164,24 @@ export default async function BotPage({ params }: { params: Promise<{ id: string
         <h2 className="text-sm font-semibold">Настройки</h2>
         <div className="mt-4">
           <BotSettingsForm bot={bot} />
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-[var(--line)] bg-white p-5">
+        <h2 className="text-sm font-semibold">AI-ответы</h2>
+        <p className="mt-1 text-sm text-[var(--muted)]">
+          Google Gemini отвечает на вопросы людей в характере бота и по базе знаний.
+          Тексты по умолчанию лежат в папке <code className="font-mono">home/</code> репозитория —
+          их можно переопределить здесь без деплоя.
+        </p>
+        <div className="mt-4">
+          <BotAiForm
+            bot={bot}
+            models={AI_MODELS}
+            defaultModel={DEFAULT_AI_MODEL}
+            defaults={{ tov: tovDefault, knowledge: knowledgeDefault }}
+            hasKey={Boolean(geminiKey)}
+          />
         </div>
       </section>
 

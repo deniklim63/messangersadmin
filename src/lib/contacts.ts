@@ -163,6 +163,8 @@ export async function logMessage(params: {
   text: string;
   externalId?: string | null;
   attachments?: Attachment[];
+  /** ai — ответ написал AI; пусто — сценарий или оператор. */
+  source?: string | null;
 }) {
   const attachments = params.attachments ?? [];
   if (!params.text.trim() && attachments.length === 0) return null;
@@ -175,6 +177,7 @@ export async function logMessage(params: {
       text: params.text.slice(0, 4000),
       externalId: params.externalId ?? null,
       attachments: attachments.length ? JSON.parse(JSON.stringify(attachments)) : undefined,
+      source: params.source ?? null,
     },
   });
 

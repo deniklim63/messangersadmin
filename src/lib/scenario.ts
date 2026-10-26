@@ -356,9 +356,14 @@ async function runChain(
 }
 
 /**
- * Пропускает входящее сообщение через сценарий бота.
- * Возвращает false, если активного сценария нет — тогда работает прежняя логика.
+ * Что сценарий сделал с сообщением:
+ * handled — ответил или перевёл человека дальше; operator — диалог у живого
+ * оператора, бот молчит; unhandled — сценарий активен, но сообщение к нему
+ * не относится (свободный текст); none — активного сценария нет.
  */
+export type ScenarioOutcome = "handled" | "operator" | "unhandled" | "none";
+
+/** Пропускает входящее сообщение через сценарий бота. */
 export async function handleScenarioMessage(params: {
   bot: Bot;
   subscriber: Pick<
@@ -368,7 +373,7 @@ export async function handleScenarioMessage(params: {
   text: string;
   /** id нажатой инлайн-кнопки: кнопки с одинаковым текстом различаем только по нему. */
   buttonId?: string | null;
-}): Promise<boolean> {
+}): Promise<ScenarioOutcome> {
   const active = await getActiveScenario(params.bot.id);
   const own = await getScenarioOfBlock(params.subscriber.currentBlockId, params.bot.id);
 
@@ -390,17 +395,20 @@ export async function handleScenarioMessage(params: {
       byButton(own.blocks) ??
       resolveExplicitTarget(own.blocks, params.subscriber.currentBlockId, params.text);
     if (ownCurrent?.kind === "INPUT" && !ownTarget && !params.subscriber.needsOperator) {
-      return handleAnswer(params.bot, params.subscriber, own.blocks, ownCurrent, params.text);
+      await handleAnswer(params.bot, params.subscriber, own.blocks, ownCurrent, params.text);
+      return "handled";
     }
     if (ownTarget && !params.subscriber.needsOperator) {
       await recordButtonClick(own.blocks, params.subscriber.id, params.subscriber.currentBlockId, params.text, params.buttonId);
       await runChainFor(params, own.blocks, ownTarget);
-      return true;
+      return "handled";
     }
   }
 
   const scenario = active;
-  if (!scenario || scenario.blocks.length === 0) return false;
+  if (!scenario || scenario.blocks.length === 0) {
+    return params.subscriber.needsOperator ? "operator" : "none";
+  }
 
   // Диалог ведёт живой человек — бот не перебивает свободную переписку.
   // Но если человек сам нажал кнопку меню или написал «Начать» —
@@ -411,7 +419,7 @@ export async function handleScenarioMessage(params: {
       params.subscriber.currentBlockId,
       params.text,
     );
-    if (!wantsBot) return true;
+    if (!wantsBot) return "operator";
     await prisma.subscriber.update({
       where: { id: params.subscriber.id },
       data: { needsOperator: false, operatorSince: null },
@@ -431,7 +439,8 @@ export async function handleScenarioMessage(params: {
   );
 
   if (current?.kind === "INPUT" && !wantsToLeave) {
-    return handleAnswer(params.bot, params.subscriber, scenario.blocks, current, params.text);
+    await handleAnswer(params.bot, params.subscriber, scenario.blocks, current, params.text);
+    return "handled";
   }
 
   const target =
@@ -450,15 +459,17 @@ export async function handleScenarioMessage(params: {
       );
     if (answerable) {
       await recordButtonClick(scenario.blocks, params.subscriber.id, params.subscriber.currentBlockId, params.text, params.buttonId);
-      return handleAnswer(params.bot, params.subscriber, scenario.blocks, answerable, params.text);
+      await handleAnswer(params.bot, params.subscriber, scenario.blocks, answerable, params.text);
+      return "handled";
     }
-    return true;
+    // Свободный текст: сценарию сказать нечего — дальше решают AI или «Входящие».
+    return "unhandled";
   }
 
   await recordButtonClick(scenario.blocks, params.subscriber.id, params.subscriber.currentBlockId, params.text, params.buttonId);
 
   await runChainFor(params, scenario.blocks, target);
-  return true;
+  return "handled";
 }
 
 /** Собирает данные человека и запускает цепочку с блока. */

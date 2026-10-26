@@ -100,6 +100,7 @@ export default async function ContactPage({ params }: { params: Promise<{ id: st
             direction: message.direction,
             text: message.text,
             botTitle: message.bot.title,
+            source: message.source,
             createdAt: message.createdAt.toISOString(),
             attachments: Array.isArray(message.attachments)
               ? (message.attachments as Attachment[])

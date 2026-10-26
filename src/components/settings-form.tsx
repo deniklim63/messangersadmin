@@ -9,9 +9,12 @@ const controlClass =
 export function SettingsForm({
   masked,
   geminiMasked,
+  geminiFromEnv = false,
 }: {
   masked: string | null;
   geminiMasked: string | null;
+  /** Ключ взят из .env — удалить его из админки нельзя. */
+  geminiFromEnv?: boolean;
 }) {
   const [state, action, pending] = useActionState(saveSettings, {} as SettingsState);
 
@@ -49,7 +52,7 @@ export function SettingsForm({
           {geminiMasked ? `Сейчас: ${geminiMasked}` : "Не задан"}
         </span>
       </label>
-      {geminiMasked ? (
+      {geminiMasked && !geminiFromEnv ? (
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" name="clearGeminiKey" /> Удалить ключ Gemini
         </label>

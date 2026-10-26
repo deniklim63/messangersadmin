@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { Platform } from "@/generated/prisma/client";
+import { AI_MODELS, generateAiReply } from "@/lib/ai-reply";
 import { requireAuth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { webhookUrl } from "@/lib/webhook-url";
@@ -175,4 +176,44 @@ export async function connectVk(_state: FormState, formData: FormData): Promise<
 
   revalidatePath(`/bots/${id}`);
   return { ok: `Подключено: ${result.groupName ?? "сообщество"}. События включены.` };
+}
+
+
+export type BotAiState = {
+  error?: string;
+  ok?: string;
+  /** Ответ на пробный вопрос из кнопки «Проверить». */
+  test?: { question: string; reply: string; handoff: boolean; model: string };
+};
+
+/**
+ * Настройки AI-ответов бота. Кнопка «Сохранить» пишет их в базу,
+ * «Проверить» — спрашивает модель с текущими значениями формы, ничего не сохраняя.
+ */
+export async function updateBotAi(_state: BotAiState, formData: FormData): Promise<BotAiState> {
+  await requireAuth();
+  const id = String(formData.get("id"));
+  const bot = await prisma.bot.findUnique({ where: { id } });
+  if (!bot) return { error: "Бот не найден" };
+
+  const model = String(formData.get("aiModel") ?? "").trim();
+  const values = {
+    aiEnabled: formData.get("aiEnabled") === "on",
+    aiModel: AI_MODELS.some((item) => item.id === model) ? model : null,
+    aiPrompt: String(formData.get("aiPrompt") ?? "").trim() || null,
+    aiKnowledge: String(formData.get("aiKnowledge") ?? "").trim() || null,
+    aiHandoff: formData.get("aiHandoff") === "on",
+  };
+
+  if (formData.get("intent") === "test") {
+    const question = String(formData.get("question") ?? "").trim();
+    if (!question) return { error: "Напишите вопрос для проверки" };
+    const answer = await generateAiReply({ bot: values, text: question });
+    if (!answer.ok) return { error: answer.error };
+    return { test: { question, reply: answer.reply, handoff: answer.handoff, model: answer.model } };
+  }
+
+  await prisma.bot.update({ where: { id }, data: values });
+  revalidatePath(`/bots/${id}`);
+  return { ok: "Сохранено" };
 }

@@ -27,6 +27,7 @@ export async function GET(
       botTitle: message.bot.title,
       createdAt: message.createdAt.toISOString(),
       attachments: Array.isArray(message.attachments) ? message.attachments : [],
+      source: message.source,
     })),
   });
 }

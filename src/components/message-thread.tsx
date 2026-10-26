@@ -11,6 +11,7 @@ export type ThreadMessage = {
   botTitle: string;
   createdAt: string;
   attachments?: Attachment[];
+  source?: string | null;
 };
 
 const POLL_MS = 3000;
@@ -92,6 +93,7 @@ export function MessageThread({
             {message.text ? <div className="whitespace-pre-wrap">{message.text}</div> : null}
             <AttachmentList attachments={message.attachments ?? []} />
             <div className="mt-1 text-xs text-[var(--muted)]">
+              {message.source === "ai" ? "🤖 AI · " : ""}
               {message.botTitle} ·{" "}
               {new Date(message.createdAt).toLocaleString("ru-RU")}
             </div>

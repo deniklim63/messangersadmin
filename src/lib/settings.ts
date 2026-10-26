@@ -10,6 +10,11 @@ export async function getSetting(key: string): Promise<string | null> {
   return row?.value ?? null;
 }
 
+/** Ключ Gemini: из настроек админки, иначе из GEMINI_API_KEY в .env. */
+export async function getGeminiKey(): Promise<string | null> {
+  return (await getSetting(SETTING_GEMINI_KEY)) || process.env.GEMINI_API_KEY?.trim() || null;
+}
+
 export async function setSetting(key: string, value: string): Promise<void> {
   if (!value) {
     await prisma.appSetting.deleteMany({ where: { key } });

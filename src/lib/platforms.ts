@@ -134,6 +134,38 @@ export async function sendVkMessage(
   }
 }
 
+/** «Печатает…» — чтобы человек видел, что ответ готовится, пока думает модель. */
+export async function sendTypingAction(
+  bot: Pick<Bot, "token" | "platform">,
+  externalId: string,
+): Promise<void> {
+  if (!bot.token) return;
+  try {
+    if (bot.platform === "TELEGRAM") {
+      await fetch(`https://api.telegram.org/bot${bot.token}/sendChatAction`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ chat_id: externalId, action: "typing" }),
+        signal: AbortSignal.timeout(5000),
+      });
+    } else {
+      await fetch("https://api.vk.com/method/messages.setActivity", {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          access_token: bot.token,
+          v: VK_API_VERSION,
+          user_id: externalId,
+          type: "typing",
+        }),
+        signal: AbortSignal.timeout(5000),
+      });
+    }
+  } catch {
+    /* индикатор необязателен */
+  }
+}
+
 export async function sendMessage(
   bot: Pick<Bot, "token" | "platform">,
   externalId: string,

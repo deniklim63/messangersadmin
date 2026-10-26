@@ -5,6 +5,7 @@ import type { Attachment } from "@/lib/attachments";
 import { extractContactData } from "@/lib/extract";
 import { normalizeEmail, normalizePhone } from "@/lib/normalize";
 import { sendMessage } from "@/lib/platforms";
+import { replyWithAi } from "@/lib/ai-reply";
 import { handleScenarioMessage } from "@/lib/scenario";
 
 export type SurveyStep = "name" | "phone" | "email" | "city" | "done";
@@ -92,7 +93,7 @@ export async function handleIncomingMessage(params: IncomingParams) {
     city: params.profileCity,
   });
 
-  await logMessage({
+  const incoming = await logMessage({
     botId: bot.id,
     subscriberId: subscriber.id,
     contactId: contact.id,
@@ -118,13 +119,28 @@ export async function handleIncomingMessage(params: IncomingParams) {
       : contact;
 
   // Если у бота включён сценарий — диалог ведёт он.
-  const handledByScenario = await handleScenarioMessage({
+  const outcome = await handleScenarioMessage({
     bot,
     subscriber,
     text,
     buttonId: params.buttonId,
   });
-  if (handledByScenario) return { contact: enriched, subscriber };
+  if (outcome === "handled" || outcome === "operator") return { contact: enriched, subscriber };
+
+  // Свободный вопрос, который сценарий не понял (или сценария нет), — отвечает AI.
+  // Кнопка «Поделиться телефоном» и голые вложения без текста — не вопросы.
+  if (bot.aiEnabled && text.trim() && !params.sharedPhone) {
+    await replyWithAi({
+      bot,
+      subscriber,
+      text,
+      before: incoming?.createdAt,
+    });
+    return { contact: enriched, subscriber };
+  }
+
+  // Сценарий есть, но сообщение к нему не относится — молчим, его увидит оператор.
+  if (outcome === "unhandled") return { contact: enriched, subscriber };
 
   if (!bot.collectSurvey) return { contact: enriched, subscriber };
 

@@ -115,6 +115,8 @@ export type ChatMessage = {
   text: string;
   createdAt: string;
   attachments: Attachment[];
+  /** ai — ответ написал AI. */
+  source: string | null;
 };
 
 export function parseAttachments(value: unknown): Attachment[] {
@@ -174,6 +176,7 @@ export async function getChat(subscriberId: string): Promise<Chat | null> {
       text: message.text,
       createdAt: message.createdAt.toISOString(),
       attachments: parseAttachments(message.attachments),
+      source: message.source,
     })),
   };
 }

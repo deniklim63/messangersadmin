@@ -304,6 +304,7 @@ export function Inbox({
                     {message.text ? <div className="whitespace-pre-wrap">{message.text}</div> : null}
                     <AttachmentList attachments={message.attachments} />
                     <div className="mt-1 text-xs text-[var(--muted)]">
+                      {message.source === "ai" ? "🤖 AI · " : ""}
                       {new Date(message.createdAt).toLocaleString("ru-RU")}
                     </div>
                   </div>

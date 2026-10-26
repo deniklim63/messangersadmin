@@ -68,6 +68,17 @@ model Bot {
   /// у чужого бота своя логика, и вмешиваться в диалог нельзя.
   collectSurvey Boolean @default(false)
 
+  /// AI-ответы: Gemini отвечает на свободные вопросы, которые не понял сценарий.
+  aiEnabled Boolean @default(false)
+  /// Модель Gemini; пусто — модель по умолчанию.
+  aiModel String?
+  /// Характер и тон (системная подсказка). Пусто — берётся home/tov.md из репозитория.
+  aiPrompt String?
+  /// База знаний о продукте. Пусто — берётся home/knowledge.md из репозитория.
+  aiKnowledge String?
+  /// Передавать диалог оператору, если AI не может помочь.
+  aiHandoff Boolean @default(true)
+
   subscribers Subscriber[]
   messages    Message[]
   events      WebhookEvent[]
@@ -167,6 +178,9 @@ model Message {
 
   /// Вложения: [{ kind, fileId, name, mime, size, url }] — kind: photo | video | file | voice | audio.
   attachments Json?
+
+  /// Кто написал исходящее: ai — ответ AI; пусто — сценарий или оператор.
+  source String?
 
   createdAt DateTime @default(now())
 
