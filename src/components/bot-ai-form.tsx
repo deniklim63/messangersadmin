@@ -39,6 +39,22 @@ export function BotAiForm({
   const [prompt, setPrompt] = useState(bot.aiPrompt ?? "");
   const [knowledge, setKnowledge] = useState(bot.aiKnowledge ?? "");
   const [question, setQuestion] = useState("");
+  // Пробный диалог: история живёт в браузере и уходит на сервер с каждым вопросом,
+  // чтобы можно было проверить игры и многоходовые разговоры.
+  const [turns, setTurns] = useState<{ role: "user" | "model"; text: string }[]>([]);
+  const [lastTest, setLastTest] = useState<BotAiState["test"] | null>(null);
+
+  // Новый ответ сервера дописываем в диалог прямо при рендере — так React
+  // советует хранить «предыдущее значение» без эффекта.
+  if (state.test && state.test.at !== lastTest?.at) {
+    setLastTest(state.test);
+    setTurns([
+      ...turns,
+      { role: "user", text: state.test.question },
+      { role: "model", text: state.test.reply },
+    ]);
+    setQuestion("");
+  }
 
   return (
     <form action={formAction} className="space-y-4">
@@ -133,8 +149,29 @@ export function BotAiForm({
       ) : null}
 
       <div className="rounded-lg bg-[var(--bg)] p-3">
+        <input type="hidden" name="history" value={JSON.stringify(turns)} />
+        {turns.length > 0 ? (
+          <div className="mb-3 space-y-2">
+            {turns.map((turn, index) => (
+              <div
+                key={index}
+                className={`max-w-[85%] whitespace-pre-wrap rounded-lg px-3 py-2 text-sm ${
+                  turn.role === "user" ? "ml-auto bg-blue-50 text-blue-900" : "bg-white"
+                }`}
+              >
+                {turn.text}
+              </div>
+            ))}
+            {lastTest ? (
+              <div className="text-xs text-[var(--muted)]">
+                {lastTest.model}
+                {lastTest.handoff ? " · передал бы диалог оператору" : ""}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
         <label className="block text-sm font-medium">
-          Проверить: задайте вопрос как пользователь
+          {turns.length > 0 ? "Продолжить пробный диалог" : "Проверить: задайте вопрос как пользователь"}
           <input
             name="question"
             value={question}
@@ -145,17 +182,23 @@ export function BotAiForm({
         </label>
         <p className="mt-1 text-xs text-[var(--muted)]">
           Ответ покажется здесь и никуда не отправится. Проверяются значения формы, даже
-          несохранённые.
+          несохранённые. Диалог накапливается — так можно проверить игры и уточняющие вопросы.
+          {turns.length > 0 ? (
+            <>
+              {" "}
+              <button
+                type="button"
+                onClick={() => {
+                  setTurns([]);
+                  setLastTest(null);
+                }}
+                className="underline"
+              >
+                Начать заново
+              </button>
+            </>
+          ) : null}
         </p>
-        {state.test ? (
-          <div className="mt-3 rounded-lg border border-[var(--line)] bg-white p-3 text-sm">
-            <div className="whitespace-pre-wrap">{state.test.reply}</div>
-            <div className="mt-2 text-xs text-[var(--muted)]">
-              {state.test.model}
-              {state.test.handoff ? " · передал бы диалог оператору" : ""}
-            </div>
-          </div>
-        ) : null}
       </div>
 
       <div className="flex flex-wrap items-center gap-3">

@@ -16,8 +16,9 @@ export const AI_MODELS: { id: string; label: string }[] = [
   { id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro (preview)" },
 ];
 
-/** Сколько последних сообщений переписки отдаём модели как контекст. */
-const HISTORY_LIMIT = 20;
+/** Сколько последних сообщений переписки отдаём модели как контекст
+ *  (с запасом на игру в города: ходов много, повторять нельзя). */
+const HISTORY_LIMIT = 40;
 /** Telegram не принимает сообщения длиннее 4096 символов. */
 const REPLY_LIMIT = 4000;
 const TIMEOUT_MS = 60_000;
@@ -29,6 +30,9 @@ const RULES = `Технические правила ответа (важнее 
 - Опирайся только на базу знаний и переписку. Не выдумывай цены, ссылки, промокоды, сроки и правила. Если ответа в базе нет — честно скажи, что уточнишь у команды.
 - Поле handoff ставь true, когда нужен живой человек: возврат денег, отмена или оформление подписки, жалоба, ошибка или баг, изменение данных аккаунта, просьба позвать человека, или вопрос, на который ты не можешь ответить по базе знаний. В таком случае в reply скажи, что передаёшь вопрос команде, и она ответит здесь же.
 - Если часть ответа есть в базе знаний — сначала дай её, и только недостающее передавай команде.
+- Технические проблемы (не грузится, нет звука, не приходит код, не прошла оплата) решай по базе техподдержки: шаги списком, каждый с новой строки, сначала самое вероятное. Не больше 3–4 шагов за одно сообщение; если не помогло — следующие.
+- Если по базе техподдержки вопрос нужно передать поддержке — handoff: true, а в reply попроси нужные данные из раздела «Когда передавать в поддержку» (без номера карты, паролей и кодов из писем).
+- Никогда не проси пароль, код из письма, номер карты или CVC.
 - Если человек просто поздоровался или нажал /start — поздоровайся и коротко скажи, чем можешь помочь.`;
 
 const RESPONSE_SCHEMA = {
@@ -40,9 +44,23 @@ const RESPONSE_SCHEMA = {
   required: ["reply", "handoff"],
 };
 
-type HomeDoc = "tov" | "knowledge";
+/**
+ * Модель иногда всё же ставит markdown, который в Telegram и ВК виден как мусор:
+ * звёздочки списков и жирного, решётки заголовков. Убираем, не трогая сам текст.
+ */
+export function stripMarkdown(text: string): string {
+  return text
+    .replace(/^[ \t]*[*\-•][ \t]+/gm, "• ")
+    .replace(/^[ \t]*#{1,6}[ \t]+/gm, "")
+    .replace(/\*\*(.+?)\*\*/g, "$1")
+    .replace(/__(.+?)__/g, "$1")
+    .replace(/(^|[\s(])\*(\S[^*\n]*?\S)\*(?=[\s).,!?:;]|$)/gm, "$1$2")
+    .trim();
+}
 
-/** Тексты по умолчанию лежат в репозитории: home/tov.md и home/knowledge.md. */
+type HomeDoc = "tov" | "knowledge" | "games" | "support";
+
+/** Тексты лежат в репозитории: home/tov.md, home/knowledge.md, home/support.md, home/games.md. */
 export async function readHomeDoc(doc: HomeDoc): Promise<string> {
   const file = path.join(process.cwd(), "home", `${doc}.md`);
   return readFile(file, "utf8").catch(() => "");
@@ -58,15 +76,22 @@ export type AiAnswer =
   | { ok: false; error: string };
 
 export async function buildSystemPrompt(bot: Pick<Bot, "aiPrompt" | "aiKnowledge" | "aiHandoff">): Promise<string> {
-  const tone = bot.aiPrompt?.trim() || (await readHomeDoc("tov"));
-  const knowledge = bot.aiKnowledge?.trim() || (await readHomeDoc("knowledge"));
+  const [tone, knowledge, support, games] = await Promise.all([
+    bot.aiPrompt?.trim() || readHomeDoc("tov"),
+    bot.aiKnowledge?.trim() || readHomeDoc("knowledge"),
+    // Техподдержка и игры в чате — общие для всех ботов, из админки не меняются.
+    readHomeDoc("support"),
+    readHomeDoc("games"),
+  ]);
   const handoffRule = bot.aiHandoff
     ? ""
     : "\n- Передача оператору выключена: handoff всегда false, а вместо «передам команде» предложи написать в поддержку.";
-  return [tone, "# База знаний\n\n" + knowledge, RULES + handoffRule].filter(Boolean).join("\n\n");
+  return [tone, "# База знаний\n\n" + knowledge, support, games, RULES + handoffRule]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
-type Turn = { role: "user" | "model"; text: string };
+export type Turn = { role: "user" | "model"; text: string };
 
 /** Последние сообщения переписки до текущего — чтобы бот помнил, о чём шла речь. */
 async function loadHistory(subscriberId: string, before?: Date): Promise<Turn[]> {
@@ -176,7 +201,7 @@ export async function generateAiReply(params: {
   } catch {
     return { ok: false, error: "Gemini вернул не JSON" };
   }
-  const reply = typeof parsed.reply === "string" ? parsed.reply.trim() : "";
+  const reply = typeof parsed.reply === "string" ? stripMarkdown(parsed.reply) : "";
   if (!reply) return { ok: false, error: "Gemini вернул пустой ответ" };
 
   return {

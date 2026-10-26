@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { Platform } from "@/generated/prisma/client";
-import { AI_MODELS, generateAiReply } from "@/lib/ai-reply";
+import { AI_MODELS, generateAiReply, type Turn } from "@/lib/ai-reply";
 import { requireAuth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { webhookUrl } from "@/lib/webhook-url";
@@ -183,8 +183,28 @@ export type BotAiState = {
   error?: string;
   ok?: string;
   /** Ответ на пробный вопрос из кнопки «Проверить». */
-  test?: { question: string; reply: string; handoff: boolean; model: string };
+  test?: { question: string; reply: string; handoff: boolean; model: string; at: number };
 };
+
+/** История пробного диалога приходит из формы строкой JSON. */
+function parseHistory(raw: FormDataEntryValue | null): Turn[] {
+  if (typeof raw !== "string" || !raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter(
+        (turn): turn is Turn =>
+          typeof turn === "object" &&
+          turn !== null &&
+          ((turn as Turn).role === "user" || (turn as Turn).role === "model") &&
+          typeof (turn as Turn).text === "string",
+      )
+      .slice(-40);
+  } catch {
+    return [];
+  }
+}
 
 /**
  * Настройки AI-ответов бота. Кнопка «Сохранить» пишет их в базу,
@@ -208,9 +228,15 @@ export async function updateBotAi(_state: BotAiState, formData: FormData): Promi
   if (formData.get("intent") === "test") {
     const question = String(formData.get("question") ?? "").trim();
     if (!question) return { error: "Напишите вопрос для проверки" };
-    const answer = await generateAiReply({ bot: values, text: question });
+    const answer = await generateAiReply({
+      bot: values,
+      text: question,
+      history: parseHistory(formData.get("history")),
+    });
     if (!answer.ok) return { error: answer.error };
-    return { test: { question, reply: answer.reply, handoff: answer.handoff, model: answer.model } };
+    return {
+      test: { question, reply: answer.reply, handoff: answer.handoff, model: answer.model, at: Date.now() },
+    };
   }
 
   await prisma.bot.update({ where: { id }, data: values });
