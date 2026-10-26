@@ -22,6 +22,33 @@ const HISTORY_LIMIT = 40;
 /** Telegram не принимает сообщения длиннее 4096 символов. */
 const REPLY_LIMIT = 4000;
 const TIMEOUT_MS = 60_000;
+/** Паузы перед повторами при временных сбоях Gemini (503, 429, обрыв сети). */
+const RETRY_DELAYS_MS = [2_000, 5_000];
+const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
+
+/**
+ * Запрос к Gemini с повтором: временные ошибки и обрывы сети пробуем ещё до двух раз,
+ * чтобы человек не остался без ответа из-за секундного сбоя на стороне Google.
+ */
+async function fetchWithRetry(url: string, init: RequestInit): Promise<Response> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt += 1) {
+    if (attempt > 0) {
+      await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS_MS[attempt - 1]));
+    }
+    try {
+      const response = await fetch(url, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) });
+      if (!RETRYABLE_STATUSES.has(response.status) || attempt === RETRY_DELAYS_MS.length) {
+        return response;
+      }
+      lastError = new Error(`HTTP ${response.status}`);
+    } catch (error) {
+      lastError = error;
+      if (attempt === RETRY_DELAYS_MS.length) throw error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
 
 /** Общие правила — не редактируются из админки, чтобы бот не сломался от правки тона. */
 const RULES = `Технические правила ответа (важнее всего остального):
@@ -150,7 +177,7 @@ export async function generateAiReply(params: {
 
   let response: Response;
   try {
-    response = await fetch(
+    response = await fetchWithRetry(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
       {
         method: "POST",
@@ -164,7 +191,6 @@ export async function generateAiReply(params: {
             temperature: 0.6,
           },
         }),
-        signal: AbortSignal.timeout(TIMEOUT_MS),
       },
     );
   } catch (error) {
@@ -181,7 +207,10 @@ export async function generateAiReply(params: {
     if (response.status === 401 || response.status === 403) {
       return { ok: false, error: `Ключ Gemini не принят: ${message}` };
     }
-    if (response.status === 429) return { ok: false, error: "Лимит запросов к Gemini" };
+    if (response.status === 429) return { ok: false, error: "Лимит запросов к Gemini (три попытки)" };
+    if (RETRYABLE_STATUSES.has(response.status)) {
+      return { ok: false, error: `Gemini недоступен после трёх попыток (${response.status}): ${message}` };
+    }
     return { ok: false, error: `Ошибка Gemini (${response.status}): ${message}` };
   }
 
