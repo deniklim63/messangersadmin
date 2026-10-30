@@ -59,19 +59,20 @@ const RULES = `Технические правила ответа (важнее 
 - Отвечай коротко и по делу.
 - Опирайся только на базу знаний и переписку. Не выдумывай цены, ссылки, промокоды, сроки и правила. Если ответа в базе нет — честно скажи, что уточнишь у команды.
 - Поле handoff ставь true, когда нужен живой человек: жалоба, ошибка или баг, который не решился по базе техподдержки, изменение данных аккаунта, просьба позвать человека, или вопрос, на который ты не можешь ответить по базе знаний. В таком случае в reply скажи, что передаёшь вопрос команде, и она ответит здесь же.
-- Пока собираешь данные для запроса (отмена подписки, возврат, удаление аккаунта) — handoff: false, иначе бот замолчит и не получит данные. Передачу оператору при готовом запросе система делает сама.
+- Запросы (отмена, пауза подписки, возврат, удаление аккаунта) на оператора не переводят: ни пока собираешь данные, ни после передачи — handoff: false, человек продолжает общаться с тобой.
 - Если часть ответа есть в базе знаний — сначала дай её, и только недостающее передавай команде.
 - Технические проблемы (не грузится, нет звука, не приходит код, не прошла оплата) решай по базе техподдержки: шаги списком, каждый с новой строки, сначала самое вероятное. Не больше 3–4 шагов за одно сообщение; если не помогло — следующие.
 - Если по базе техподдержки вопрос нужно передать поддержке — handoff: true, а в reply попроси нужные данные из раздела «Когда передавать в поддержку» (без номера карты, паролей и кодов из писем).
 - Никогда не проси пароль, код из письма, номер карты или CVC.
-- Отмена подписки, возврат денег и удаление аккаунта идут по разделу «Запросы, которые Хоуми передаёт». Когда впервые просишь данные для такого запроса — поставь collecting: <kind>, а в reply напиши только одну короткую вводную фразу на языке человека, без списка. «Велком!» (по-английски «Welcome!») — только когда человек начинает новый запрос после уже переданного; в первый раз — обычная тёплая фраза: список вопросов система добавит сама, дословно. Никогда не составляй этот список сам и не копируй его из прошлых сообщений в переписке — там он может быть устаревшим. Если человек прислал часть данных в ответ на список — collecting: null, просто перечисли, чего не хватает. E-mail аккаунта всегда спрашивай заново: почта, названная раньше в боте, может быть не той, на которую заведён аккаунт. Когда есть всё — заполни request. Пока чего-то нет — request: null, handoff: false.
+- Отмена подписки, пауза подписки, возврат денег и удаление аккаунта идут по разделу «Запросы, которые Хоуми передаёт». Когда впервые просишь данные для такого запроса — поставь collecting: <kind>, а в reply напиши только одну короткую вводную фразу на языке человека, без списка. «Велком!» (по-английски «Welcome!») — только когда человек начинает новый запрос после уже переданного; в первый раз — обычная тёплая фраза: список вопросов система добавит сама, дословно. Никогда не составляй этот список сам и не копируй его из прошлых сообщений в переписке — там он может быть устаревшим. Если человек прислал часть данных в ответ на список — collecting: null, просто перечисли, чего не хватает. E-mail аккаунта всегда спрашивай заново: почта, названная раньше в боте, может быть не той, на которую заведён аккаунт. Когда есть всё — заполни request. Пока чего-то нет — request: null, handoff: false.
 - Если человек просто поздоровался или нажал /start — поздоровайся и коротко скажи, чем можешь помочь.`;
 
-export const REQUEST_KINDS = ["cancel_subscription", "refund", "delete_account"] as const;
+export const REQUEST_KINDS = ["cancel_subscription", "pause_subscription", "refund", "delete_account"] as const;
 export type RequestKind = (typeof REQUEST_KINDS)[number];
 
 export const REQUEST_LABELS: Record<RequestKind, string> = {
   cancel_subscription: "Отмена подписки",
+  pause_subscription: "Пауза подписки",
   refund: "Возврат денег",
   delete_account: "Удаление аккаунта",
 };
@@ -129,6 +130,14 @@ const CHECKLISTS: Record<RequestKind, { ru: string; en: string }> = {
     en: `1. The e-mail of your account.
 2. Where the subscription was purchased: quizplease.ru, quizplease.com, App Store or Google Play.`,
   },
+  pause_subscription: {
+    ru: `1. E-mail аккаунта.
+2. Где оформлена подписка: quizplease.ru, quizplease.com, App Store или Google Play.
+3. На какой срок поставить паузу: от 1 до 6 месяцев.`,
+    en: `1. The e-mail of your account.
+2. Where the subscription was purchased: quizplease.ru, quizplease.com, App Store or Google Play.
+3. For how long to pause: from 1 to 6 months.`,
+  },
   delete_account: {
     ru: `1. E-mail аккаунта.
 2. Сайт: quizplease.ru или quizplease.com.
@@ -144,6 +153,10 @@ const CHECKLIST_INTRO: Record<RequestKind, { ru: string; en: string }> = {
   cancel_subscription: {
     ru: "Чтобы передать запрос на отмену, пришлите, пожалуйста:",
     en: "To pass on the cancellation, please send:",
+  },
+  pause_subscription: {
+    ru: "Чтобы передать запрос на паузу, пришлите, пожалуйста:",
+    en: "To pass on the pause request, please send:",
   },
   delete_account: {
     ru: "Чтобы передать запрос на удаление аккаунта, пришлите, пожалуйста:",
@@ -468,9 +481,9 @@ export async function generateAiReply(params: {
   return {
     ok: true,
     reply: reply.slice(0, REPLY_LIMIT),
-    // Собранный запрос всегда уходит человеку из команды — диалог ему и передаём.
-    // Пока данные только собираются, диалог остаётся у бота.
-    handoff: collecting ? false : (params.bot.aiHandoff && parsed.handoff === true) || request !== null,
+    // Собранный запрос уходит ответственному уведомлением, а диалог остаётся у бота:
+    // человек может продолжать общаться с Хоуми. Пока данные собираются — тоже.
+    handoff: collecting || request ? false : params.bot.aiHandoff && parsed.handoff === true,
     model,
     request: collecting ? null : request,
     collecting,
@@ -545,10 +558,10 @@ export async function replyWithAi(params: {
   }
 
   let reply = answer.reply;
-  let handoff = answer.handoff;
-  let handoffReason = "AI не смог ответить сам";
+  const handoff = answer.handoff;
 
   // Собранный запрос: сначала проверяем сами, потом передаём ответственному.
+  // Диалог при этом не трогаем — человек продолжает общаться с ботом.
   if (answer.request) {
     const outcome = await forwardRequest({
       bot,
@@ -561,8 +574,6 @@ export async function replyWithAi(params: {
       english,
     });
     if (outcome.replyOverride) reply = outcome.replyOverride;
-    handoff = outcome.handoff;
-    handoffReason = `запрос «${REQUEST_LABELS[answer.request.kind]}» передан ответственному`;
   }
 
   const sent = await sendMessage(bot, subscriber.externalId, reply);
@@ -587,7 +598,7 @@ export async function replyWithAi(params: {
   if (handoff) {
     await handToOperator(
       { subscriberId: subscriber.id, botId: bot.id, contactId: subscriber.contactId },
-      handoffReason,
+      "AI не смог ответить сам",
     );
   }
 }
@@ -618,7 +629,7 @@ async function forwardRequest(params: {
   pdfUsed: boolean;
   forwarded: ForwardedRequest[];
   english: boolean;
-}): Promise<{ replyOverride: string | null; handoff: boolean }> {
+}): Promise<{ replyOverride: string | null }> {
   const { bot, subscriber, request, pdf, english } = params;
 
   if (!EMAIL_RE.test(request.email)) {
@@ -626,7 +637,6 @@ async function forwardRequest(params: {
       replyOverride: english
         ? "To pass this on I need the e-mail of your account. Please send it here."
         : "Чтобы передать запрос, мне нужен e-mail вашего аккаунта. Напишите его сюда.",
-      handoff: false,
     };
   }
   if (request.kind === "refund" && !pdf && params.pdfUsed) {
@@ -634,7 +644,6 @@ async function forwardRequest(params: {
       replyOverride: english
         ? "This receipt already went with your previous refund request. For a new refund please send the PDF receipt of that payment, and I will pass everything on right away."
         : "Этот чек уже ушёл с прошлым запросом на возврат. Для нового возврата пришлите PDF-чек именно этой оплаты, и я сразу передам запрос.",
-      handoff: false,
     };
   }
   if (request.kind === "refund" && !pdf) {
@@ -642,7 +651,6 @@ async function forwardRequest(params: {
       replyOverride: english
         ? "For a refund I need the PDF receipt of the payment. Please send it here as a file (you can download it from the payment e-mail or your banking app), and I will pass everything on right away."
         : "Для возврата нужен PDF-чек об оплате. Пришлите его сюда файлом (его можно скачать из письма об оплате или из банковского приложения), и я сразу передам запрос.",
-      handoff: false,
     };
   }
 
@@ -657,7 +665,7 @@ async function forwardRequest(params: {
       item.notifiedAt.getTime() > since &&
       (request.kind !== "refund" || item.fileId === pdf?.fileId),
   );
-  if (duplicate) return { replyOverride: confirmationText(english), handoff: true };
+  if (duplicate) return { replyOverride: confirmationText(english) };
 
   const fileId = request.kind === "refund" ? (pdf?.fileId ?? null) : null;
   const record = await prisma.aiRequest.create({
@@ -678,7 +686,6 @@ async function forwardRequest(params: {
       replyOverride: english
         ? "I could not pass your request on right now. Please write again in a few minutes."
         : "Не получилось передать запрос прямо сейчас. Напишите, пожалуйста, ещё раз через несколько минут.",
-      handoff: true,
     };
   };
 
@@ -729,7 +736,7 @@ async function forwardRequest(params: {
 
   await prisma.aiRequest.update({ where: { id: record.id }, data: { notifiedAt: new Date() } });
   // Подтверждение человеку — фиксированный текст, чтобы срок и формулировка не плавали.
-  return { replyOverride: confirmationText(english), handoff: true };
+  return { replyOverride: confirmationText(english) };
 }
 
 function confirmationText(english: boolean): string {
