@@ -6,6 +6,7 @@ export type Conversation = {
   subscriberId: string;
   contactId: string;
   name: string;
+  botId: string;
   botTitle: string;
   platform: "TELEGRAM" | "VK";
   status: string;
@@ -30,6 +31,7 @@ export async function getConversations(): Promise<Conversation[]> {
     SELECT s.id AS "subscriberId",
            c.id AS "contactId",
            COALESCE(NULLIF(c.name, ''), NULLIF(s.username, ''), c.phone, s."externalId") AS name,
+           b.id AS "botId",
            b.title AS "botTitle",
            b.platform::text AS platform,
            s.status::text AS status,

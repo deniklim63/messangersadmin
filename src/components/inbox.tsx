@@ -40,6 +40,10 @@ export function Inbox({
   const [query, setQuery] = useState("");
   const [onlyUnread, setOnlyUnread] = useState(false);
   const [onlyOperator, setOnlyOperator] = useState(false);
+  const [botFilter, setBotFilter] = useState<string>("");
+  const bots = Array.from(
+    new Map(conversations.map((item) => [item.botId, { id: item.botId, title: item.botTitle, platform: item.platform }])).values(),
+  );
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -106,6 +110,7 @@ export function Inbox({
   const visible = conversations.filter((item) => {
     if (onlyUnread && item.unread === 0) return false;
     if (onlyOperator && !item.needsOperator) return false;
+    if (botFilter && item.botId !== botFilter) return false;
     if (!query.trim()) return true;
     const needle = query.trim().toLowerCase();
     return (
@@ -142,6 +147,22 @@ export function Inbox({
             placeholder="Поиск по диалогам"
             className="w-full rounded-lg border border-[var(--line)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
           />
+          {bots.length > 1 ? (
+            <select
+              value={botFilter}
+              onChange={(event) => setBotFilter(event.target.value)}
+              className="w-full rounded-lg border border-[var(--line)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
+              title="Показать диалоги только одного бота"
+            >
+              <option value="">Все боты</option>
+              {bots.map((bot) => (
+                <option key={bot.id} value={bot.id}>
+                  {bot.platform === "TELEGRAM" ? "Telegram" : "ВКонтакте"} · {bot.title} (
+                  {conversations.filter((item) => item.botId === bot.id).length})
+                </option>
+              ))}
+            </select>
+          ) : null}
           {conversations.some((item) => item.needsOperator) ? (
             <button
               type="button"
@@ -155,7 +176,7 @@ export function Inbox({
             >
               <span>🙋 Ждут оператора</span>
               <span className="rounded-full bg-rose-600 px-2 py-0.5 text-xs font-semibold text-white tabular-nums">
-                {conversations.filter((item) => item.needsOperator).length}
+                {conversations.filter((item) => item.needsOperator && (!botFilter || item.botId === botFilter)).length}
               </span>
             </button>
           ) : null}
