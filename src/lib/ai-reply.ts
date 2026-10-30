@@ -229,6 +229,30 @@ async function findRecentPdf(
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
+type ForwardedRequest = {
+  kind: RequestKind;
+  email: string;
+  details: string;
+  fileId: string | null;
+  notifiedAt: Date;
+};
+
+/** Запросы этого человека, уже переданные команде за последнюю неделю. */
+async function loadForwardedRequests(subscriberId: string): Promise<ForwardedRequest[]> {
+  const rows = await prisma.aiRequest.findMany({
+    where: {
+      subscriberId,
+      notifiedAt: { gt: new Date(Date.now() - PDF_LOOKBACK_DAYS * 86_400_000) },
+    },
+    orderBy: { notifiedAt: "desc" },
+    take: 10,
+    select: { kind: true, email: true, details: true, fileId: true, notifiedAt: true },
+  });
+  return rows
+    .filter((row): row is typeof row & { notifiedAt: Date } => row.notifiedAt !== null)
+    .map((row) => ({ ...row, kind: row.kind as RequestKind }));
+}
+
 /** Человек пишет по-английски? По кириллице в тексте: нет её — считаем английским. */
 function isEnglish(text: string): boolean {
   return text.trim().length > 0 && !/[а-яё]/i.test(text);
@@ -366,19 +390,34 @@ export async function replyWithAi(params: {
   const attachments = params.attachments ?? [];
   await sendTypingAction(bot, subscriber.externalId);
 
-  const [history, contact, pdf] = await Promise.all([
+  const [history, contact, pdf, forwarded] = await Promise.all([
     loadHistory(subscriber.id, params.before),
     prisma.contact.findUnique({
       where: { id: subscriber.contactId },
       select: { name: true, city: { select: { name: true } } },
     }),
     findRecentPdf(subscriber.id),
+    loadForwardedRequests(subscriber.id),
   ]);
 
+  // Чек, который уже ушёл с переданным возвратом, для нового возврата не годится.
+  const pdfUsed = Boolean(pdf && forwarded.some((item) => item.fileId === pdf.fileId));
   const facts = [
     pdf
-      ? `PDF-файл от человека в этом диалоге есть: «${pdf.name}» (${pdf.at.toLocaleString("ru-RU")}).`
+      ? `PDF-файл от человека в этом диалоге есть: «${pdf.name}» (${pdf.at.toLocaleString("ru-RU")})${
+          pdfUsed ? " — уже использован в переданном запросе, для нового возврата нужен новый чек" : ""
+        }.`
       : "PDF-файлов от человека в этом диалоге нет.",
+    forwarded.length
+      ? `Запросы этого человека, уже переданные команде: ${forwarded
+          .map(
+            (item) =>
+              `[${item.notifiedAt.toLocaleString("ru-RU")}] ${REQUEST_LABELS[item.kind]}, e-mail ${item.email}${
+                item.details ? `, ${item.details}` : ""
+              }${item.fileId ? ", чек приложен" : ""}`,
+          )
+          .join("; ")}.`
+      : "Переданных команде запросов у этого человека пока нет.",
   ];
 
   const answer = await generateAiReply({
@@ -405,7 +444,9 @@ export async function replyWithAi(params: {
       subscriber,
       contactName: contact?.name ?? null,
       request: answer.request,
-      pdf,
+      pdf: pdfUsed ? null : pdf,
+      pdfUsed,
+      forwarded,
       english: isEnglish(params.text),
     });
     if (outcome.replyOverride) reply = outcome.replyOverride;
@@ -460,7 +501,11 @@ async function forwardRequest(params: {
   subscriber: Pick<Subscriber, "id" | "externalId" | "contactId" | "username" | "firstName" | "lastName">;
   contactName: string | null;
   request: CollectedRequest;
+  /** Свежий, ещё не использованный PDF-чек. */
   pdf: { fileId: string; name: string; at: Date } | null;
+  /** Последний чек уже ушёл с прошлым возвратом. */
+  pdfUsed: boolean;
+  forwarded: ForwardedRequest[];
   english: boolean;
 }): Promise<{ replyOverride: string | null; handoff: boolean }> {
   const { bot, subscriber, request, pdf, english } = params;
@@ -470,6 +515,14 @@ async function forwardRequest(params: {
       replyOverride: english
         ? "To pass this on I need the e-mail of your account. Please send it here."
         : "Чтобы передать запрос, мне нужен e-mail вашего аккаунта. Напишите его сюда.",
+      handoff: false,
+    };
+  }
+  if (request.kind === "refund" && !pdf && params.pdfUsed) {
+    return {
+      replyOverride: english
+        ? "This receipt already went with your previous refund request. For a new refund please send the PDF receipt of that payment, and I will pass everything on right away."
+        : "Этот чек уже ушёл с прошлым запросом на возврат. Для нового возврата пришлите PDF-чек именно этой оплаты, и я сразу передам запрос.",
       handoff: false,
     };
   }
@@ -483,15 +536,17 @@ async function forwardRequest(params: {
   }
 
   // Такой же запрос уже ушёл недавно — не дёргаем ответственного повторно.
-  const recent = await prisma.aiRequest.findFirst({
-    where: {
-      subscriberId: subscriber.id,
-      kind: request.kind,
-      notifiedAt: { gt: new Date(Date.now() - REQUEST_DEDUPE_HOURS * 3_600_000) },
-    },
-    select: { id: true },
-  });
-  if (recent) return { replyOverride: confirmationText(english), handoff: true };
+  // Возврат считаем тем же, если тот же e-mail и тот же чек; отмену и удаление —
+  // если тот же e-mail: двух разных отмен у одного аккаунта не бывает.
+  const since = Date.now() - REQUEST_DEDUPE_HOURS * 3_600_000;
+  const duplicate = params.forwarded.some(
+    (item) =>
+      item.kind === request.kind &&
+      item.email === request.email &&
+      item.notifiedAt.getTime() > since &&
+      (request.kind !== "refund" || item.fileId === pdf?.fileId),
+  );
+  if (duplicate) return { replyOverride: confirmationText(english), handoff: true };
 
   const fileId = request.kind === "refund" ? (pdf?.fileId ?? null) : null;
   const record = await prisma.aiRequest.create({
