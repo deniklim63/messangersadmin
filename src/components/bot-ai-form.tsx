@@ -204,10 +204,8 @@ export function BotAiForm({
               {" "}
               <button
                 type="button"
-                onClick={() => {
-                  setTurns([]);
-                  setLastTest(null);
-                }}
+                // lastTest не сбрасываем: иначе прошлый ответ сервера дописался бы заново.
+                onClick={() => setTurns([])}
                 className="underline"
               >
                 Начать заново
