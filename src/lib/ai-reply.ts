@@ -55,7 +55,7 @@ async function fetchWithRetry(url: string, init: RequestInit): Promise<Response>
 /** Общие правила — не редактируются из админки, чтобы бот не сломался от правки тона. */
 const RULES = `Технические правила ответа (важнее всего остального):
 - Ты общаешься в чате Telegram или ВКонтакте: отвечай обычным текстом, без markdown-разметки (никаких **, #, таблиц). Абзацы и списки — просто переносами строк.
-- Отвечай на языке человека: по-русски или по-английски. Если человек пишет по-английски — отвечай по-английски, тем же тоном и по тем же правилам (без эмодзи и markdown). Если язык неясен — по-русски.
+- Отвечай на языке человека: по-русски или по-английски. Какой это язык, система определяет сама по последним сообщениям и сообщает в фактах — следуй этому, не переключайся из-за одной ссылки или слова латиницей.
 - Отвечай коротко и по делу.
 - Опирайся только на базу знаний и переписку. Не выдумывай цены, ссылки, промокоды, сроки и правила. Если ответа в базе нет — честно скажи, что уточнишь у команды.
 - Поле handoff ставь true, когда нужен живой человек: жалоба, ошибка или баг, который не решился по базе техподдержки, изменение данных аккаунта, просьба позвать человека, или вопрос, на который ты не можешь ответить по базе знаний. В таком случае в reply скажи, что передаёшь вопрос команде, и она ответит здесь же.
@@ -64,7 +64,7 @@ const RULES = `Технические правила ответа (важнее 
 - Технические проблемы (не грузится, нет звука, не приходит код, не прошла оплата) решай по базе техподдержки: шаги списком, каждый с новой строки, сначала самое вероятное. Не больше 3–4 шагов за одно сообщение; если не помогло — следующие.
 - Если по базе техподдержки вопрос нужно передать поддержке — handoff: true, а в reply попроси нужные данные из раздела «Когда передавать в поддержку» (без номера карты, паролей и кодов из писем).
 - Никогда не проси пароль, код из письма, номер карты или CVC.
-- Отмена подписки, возврат денег и удаление аккаунта идут по разделу «Запросы, которые Хоуми передаёт». Когда впервые просишь данные для такого запроса — поставь collecting: <kind>, а в reply напиши только одну короткую вводную фразу на языке человека, без списка (например, «Велком!» для нового запроса, по-английски — «Welcome!»): список вопросов система добавит сама, дословно. Никогда не составляй этот список сам и не копируй его из прошлых сообщений в переписке — там он может быть устаревшим. Если человек прислал часть данных в ответ на список — collecting: null, просто перечисли, чего не хватает. E-mail аккаунта всегда спрашивай заново: почта, названная раньше в боте, может быть не той, на которую заведён аккаунт. Когда есть всё — заполни request. Пока чего-то нет — request: null, handoff: false.
+- Отмена подписки, возврат денег и удаление аккаунта идут по разделу «Запросы, которые Хоуми передаёт». Когда впервые просишь данные для такого запроса — поставь collecting: <kind>, а в reply напиши только одну короткую вводную фразу на языке человека, без списка. «Велком!» (по-английски «Welcome!») — только когда человек начинает новый запрос после уже переданного; в первый раз — обычная тёплая фраза: список вопросов система добавит сама, дословно. Никогда не составляй этот список сам и не копируй его из прошлых сообщений в переписке — там он может быть устаревшим. Если человек прислал часть данных в ответ на список — collecting: null, просто перечисли, чего не хватает. E-mail аккаунта всегда спрашивай заново: почта, названная раньше в боте, может быть не той, на которую заведён аккаунт. Когда есть всё — заполни request. Пока чего-то нет — request: null, handoff: false.
 - Если человек просто поздоровался или нажал /start — поздоровайся и коротко скажи, чем можешь помочь.`;
 
 export const REQUEST_KINDS = ["cancel_subscription", "refund", "delete_account"] as const;
@@ -327,10 +327,31 @@ async function loadForwardedRequests(subscriberId: string): Promise<ForwardedReq
     .map((row) => ({ ...row, kind: row.kind as RequestKind }));
 }
 
-/** Человек пишет по-английски? По кириллице в тексте: нет её — считаем английским. */
-function isEnglish(text: string): boolean {
-  return text.trim().length > 0 && !/[а-яё]/i.test(text);
+/** Сколько последних реплик человека смотрим, решая, на каком языке он пишет. */
+const LANGUAGE_WINDOW = 5;
+
+/**
+ * Человек пишет по-английски? Смотрим не на одно сообщение, а на последние реплики:
+ * «quizplease.ru» или «ok» посреди русского разговора — ещё не английский.
+ * Ссылки и почты не считаются, нужны настоящие латинские слова и ни одной кириллицы.
+ */
+export function detectEnglish(texts: string[]): boolean {
+  const clean = (text: string) =>
+    text
+      .replace(/https?:\/\/\S+|\S+@\S+|\b[\w-]+\.(ru|com|net|org|io|me)\b/gi, " ")
+      .replace(/\[прислал файл:[^\]]*\]/g, " ");
+  const latinWords = (text: string) => (text.match(/[a-z]{2,}/gi) ?? []).length;
+  const hasCyrillic = (text: string) => /[а-яё]/i.test(text);
+
+  // Целая фраза на английском — переключаемся сразу, не дожидаясь истории.
+  const current = clean(texts[texts.length - 1] ?? "");
+  if (!hasCyrillic(current) && latinWords(current) >= 3) return true;
+
+  const sample = texts.slice(-LANGUAGE_WINDOW).map(clean).join(" ");
+  if (hasCyrillic(sample)) return false;
+  return latinWords(sample) >= 2;
 }
+
 
 /** Gemini требует чередования ролей: подряд идущие реплики одной стороны склеиваем. */
 function mergeTurns(turns: Turn[]): Turn[] {
@@ -356,17 +377,21 @@ export async function generateAiReply(params: {
   person?: { name?: string | null; city?: string | null };
   /** Что система знает точно: например, прислан ли PDF. Дописывается в подсказку. */
   facts?: string[];
+  /** Человек пишет по-английски (решает код по последним репликам). */
+  english?: boolean;
   model?: string;
 }): Promise<AiAnswer> {
   const apiKey = await getGeminiKey();
   if (!apiKey) return { ok: false, error: "Не задан ключ Gemini — раздел «Настройки»" };
 
   const model = params.model ?? params.bot.aiModel?.trim() ?? DEFAULT_AI_MODEL;
+  const english = params.english ?? detectEnglish([...(params.history ?? []).filter((turn) => turn.role === "user").map((turn) => turn.text), params.text]);
   const system = await buildSystemPrompt(params.bot);
   const who = [
     params.person?.name ? `Имя человека: ${params.person.name}.` : "",
     params.person?.city ? `Город: ${params.person.city}.` : "",
     `Сегодня ${new Date().toLocaleDateString("ru-RU")}.`,
+    `Язык общения: ${english ? "английский" : "русский"} — отвечай на нём.`,
     ...(params.facts ?? []),
   ]
     .filter(Boolean)
@@ -436,7 +461,7 @@ export async function generateAiReply(params: {
     ? (parsed.collecting as RequestKind)
     : null;
   let reply = typeof parsed.reply === "string" ? stripMarkdown(parsed.reply) : "";
-  if (collecting) reply = withChecklist(collecting, reply, isEnglish(params.text));
+  if (collecting) reply = withChecklist(collecting, reply, english);
   if (!reply) return { ok: false, error: "Gemini вернул пустой ответ" };
 
   const request = parseRequest(parsed.request);
@@ -500,12 +525,18 @@ export async function replyWithAi(params: {
       : "Переданных команде запросов у этого человека пока нет.",
   ];
 
+  const english = detectEnglish([
+    ...history.filter((turn) => turn.role === "user").map((turn) => turn.text),
+    params.text,
+  ]);
+
   const answer = await generateAiReply({
     bot,
     text: describeIncoming(params.text, attachments),
     history,
     person: { name: contact?.name, city: contact?.city?.name },
     facts,
+    english,
   });
 
   if (!answer.ok) {
@@ -527,7 +558,7 @@ export async function replyWithAi(params: {
       pdf: pdfUsed ? null : pdf,
       pdfUsed,
       forwarded,
-      english: isEnglish(params.text),
+      english,
     });
     if (outcome.replyOverride) reply = outcome.replyOverride;
     handoff = outcome.handoff;
