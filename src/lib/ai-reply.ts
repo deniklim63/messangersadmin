@@ -64,7 +64,7 @@ const RULES = `Технические правила ответа (важнее 
 - Технические проблемы (не грузится, нет звука, не приходит код, не прошла оплата) решай по базе техподдержки: шаги списком, каждый с новой строки, сначала самое вероятное. Не больше 3–4 шагов за одно сообщение; если не помогло — следующие.
 - Если по базе техподдержки вопрос нужно передать поддержке — handoff: true, а в reply попроси нужные данные из раздела «Когда передавать в поддержку» (без номера карты, паролей и кодов из писем).
 - Никогда не проси пароль, код из письма, номер карты или CVC.
-- Отмена подписки, возврат денег и удаление аккаунта идут по разделу «Запросы, которые Хоуми передаёт»: собери данные, и только когда есть всё — заполни request. Пока чего-то нет — request: null, handoff: false и попроси недостающее.
+- Отмена подписки, возврат денег и удаление аккаунта идут по разделу «Запросы, которые Хоуми передаёт». Когда впервые просишь данные для такого запроса — поставь collecting: <kind>, а в reply напиши только одну короткую вводную фразу на языке человека, без списка (например, «Велком!» для нового запроса, по-английски — «Welcome!»): список вопросов система добавит сама, дословно. Никогда не составляй этот список сам и не копируй его из прошлых сообщений в переписке — там он может быть устаревшим. Если человек прислал часть данных в ответ на список — collecting: null, просто перечисли, чего не хватает. E-mail аккаунта всегда спрашивай заново: почта, названная раньше в боте, может быть не той, на которую заведён аккаунт. Когда есть всё — заполни request. Пока чего-то нет — request: null, handoff: false.
 - Если человек просто поздоровался или нажал /start — поздоровайся и коротко скажи, чем можешь помочь.`;
 
 export const REQUEST_KINDS = ["cancel_subscription", "refund", "delete_account"] as const;
@@ -81,6 +81,13 @@ const RESPONSE_SCHEMA = {
   properties: {
     reply: { type: "STRING", description: "Ответ человеку" },
     handoff: { type: "BOOLEAN", description: "Нужно передать диалог живому человеку" },
+    collecting: {
+      type: "STRING",
+      nullable: true,
+      enum: [...REQUEST_KINDS],
+      description:
+        "Первый раз просишь данные для запроса этого типа: список вопросов система добавит сама. Иначе null.",
+    },
     request: {
       type: "OBJECT",
       nullable: true,
@@ -98,6 +105,65 @@ const RESPONSE_SCHEMA = {
 };
 
 export type CollectedRequest = { kind: RequestKind; email: string; details: string };
+
+/**
+ * Что просим у человека — дословно, из кода, а не от модели: она склонна копировать
+ * свой прошлый список из переписки, даже если правила уже поменялись.
+ */
+const CHECKLISTS: Record<RequestKind, { ru: string; en: string }> = {
+  refund: {
+    ru: `1. E-mail аккаунта.
+2. Сайт (quizplease.ru или quizplease.com) или магазин (App Store, Google Play), где вы платили.
+3. Что именно оплачено: игру или тариф подписки.
+4. Причина возврата.
+5. И обязательно прикрепите PDF-чек об оплате. Его можно скачать из письма об оплате или из банковского приложения.`,
+    en: `1. The e-mail of your account.
+2. The site (quizplease.ru or quizplease.com) or store (App Store, Google Play) where you paid.
+3. What exactly you paid for: a game or a subscription plan.
+4. The reason for the refund.
+5. And please attach the PDF receipt of the payment. You can download it from the payment e-mail or from your banking app.`,
+  },
+  cancel_subscription: {
+    ru: `1. E-mail аккаунта.
+2. Где оформлена подписка: quizplease.ru, quizplease.com, App Store или Google Play.`,
+    en: `1. The e-mail of your account.
+2. Where the subscription was purchased: quizplease.ru, quizplease.com, App Store or Google Play.`,
+  },
+  delete_account: {
+    ru: `1. E-mail аккаунта.
+2. Сайт: quizplease.ru или quizplease.com.
+3. Подтверждение, что вы понимаете: аккаунт, покупки, подписка и баллы удалятся безвозвратно.`,
+    en: `1. The e-mail of your account.
+2. The site: quizplease.ru or quizplease.com.
+3. Confirmation that you understand: the account, purchases, subscription and points will be deleted permanently.`,
+  },
+};
+
+const CHECKLIST_INTRO: Record<RequestKind, { ru: string; en: string }> = {
+  refund: { ru: "Чтобы оформить возврат, пришлите, пожалуйста:", en: "To arrange a refund, please send:" },
+  cancel_subscription: {
+    ru: "Чтобы передать запрос на отмену, пришлите, пожалуйста:",
+    en: "To pass on the cancellation, please send:",
+  },
+  delete_account: {
+    ru: "Чтобы передать запрос на удаление аккаунта, пришлите, пожалуйста:",
+    en: "To pass on the account deletion, please send:",
+  },
+};
+
+/**
+ * Вводная фраза модели плюс список из кода. От модели берём только первое
+ * законченное предложение («Велком!», «Так быть не должно.»): всё остальное —
+ * её собственная подводка к списку, которая нам не нужна.
+ */
+function withChecklist(kind: RequestKind, modelReply: string, english: boolean): string {
+  const lang = english ? "en" : "ru";
+  // До двух предложений: «Конечно. Подписку можно и приостановить самому в кабинете.»
+  const sentence = modelReply.replace(/\s+/g, " ").match(/^(?:[^.!?:]*[.!?]\s*){1,2}/)?.[0]?.trim() ?? "";
+  // Человеку, который пишет по-английски, русская вводная ни к чему.
+  const intro = sentence && !(english && /[а-яё]/i.test(sentence)) ? sentence : "";
+  return `${intro ? `${intro}\n\n` : ""}${CHECKLIST_INTRO[kind][lang]}\n${CHECKLISTS[kind][lang]}`;
+}
 
 function parseRequest(value: unknown): CollectedRequest | null {
   if (!value || typeof value !== "object") return null;
@@ -146,7 +212,15 @@ export type AiBot = Pick<
 >;
 
 export type AiAnswer =
-  | { ok: true; reply: string; handoff: boolean; model: string; request: CollectedRequest | null }
+  | {
+      ok: true;
+      reply: string;
+      handoff: boolean;
+      model: string;
+      request: CollectedRequest | null;
+      /** Модель впервые просит данные для запроса этого типа — список добавлен из кода. */
+      collecting: RequestKind | null;
+    }
   | { ok: false; error: string };
 
 export async function buildSystemPrompt(bot: Pick<Bot, "aiPrompt" | "aiKnowledge" | "aiHandoff">): Promise<string> {
@@ -352,13 +426,17 @@ export async function generateAiReply(params: {
     return { ok: false, error: `Gemini не дал ответа${reason ? ` (${reason})` : ""}` };
   }
 
-  let parsed: { reply?: unknown; handoff?: unknown; request?: unknown };
+  let parsed: { reply?: unknown; handoff?: unknown; request?: unknown; collecting?: unknown };
   try {
-    parsed = JSON.parse(raw) as { reply?: unknown; handoff?: unknown; request?: unknown };
+    parsed = JSON.parse(raw) as typeof parsed;
   } catch {
     return { ok: false, error: "Gemini вернул не JSON" };
   }
-  const reply = typeof parsed.reply === "string" ? stripMarkdown(parsed.reply) : "";
+  const collecting = REQUEST_KINDS.includes(parsed.collecting as RequestKind)
+    ? (parsed.collecting as RequestKind)
+    : null;
+  let reply = typeof parsed.reply === "string" ? stripMarkdown(parsed.reply) : "";
+  if (collecting) reply = withChecklist(collecting, reply, isEnglish(params.text));
   if (!reply) return { ok: false, error: "Gemini вернул пустой ответ" };
 
   const request = parseRequest(parsed.request);
@@ -366,9 +444,11 @@ export async function generateAiReply(params: {
     ok: true,
     reply: reply.slice(0, REPLY_LIMIT),
     // Собранный запрос всегда уходит человеку из команды — диалог ему и передаём.
-    handoff: (params.bot.aiHandoff && parsed.handoff === true) || request !== null,
+    // Пока данные только собираются, диалог остаётся у бота.
+    handoff: collecting ? false : (params.bot.aiHandoff && parsed.handoff === true) || request !== null,
     model,
-    request,
+    request: collecting ? null : request,
+    collecting,
   };
 }
 
