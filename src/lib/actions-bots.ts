@@ -223,6 +223,7 @@ export async function updateBotAi(_state: BotAiState, formData: FormData): Promi
     aiPrompt: String(formData.get("aiPrompt") ?? "").trim() || null,
     aiKnowledge: String(formData.get("aiKnowledge") ?? "").trim() || null,
     aiHandoff: formData.get("aiHandoff") === "on",
+    aiNotifyChatId: String(formData.get("aiNotifyChatId") ?? "").trim() || null,
   };
 
   if (formData.get("intent") === "test") {

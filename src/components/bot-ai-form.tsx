@@ -10,6 +10,7 @@ type Bot = {
   aiPrompt: string | null;
   aiKnowledge: string | null;
   aiHandoff: boolean;
+  aiNotifyChatId: string | null;
 };
 
 const inputClass =
@@ -91,6 +92,21 @@ export function BotAiForm({
         и вопросы сценария работают как раньше. Пока диалог у оператора, AI молчит.
         Все ответы AI видны во «Входящих» с пометкой 🤖.
       </p>
+
+      <label className="block text-sm font-medium sm:max-w-md">
+        Куда слать запросы на отмену подписки, возврат и удаление аккаунта
+        <input
+          name="aiNotifyChatId"
+          defaultValue={bot.aiNotifyChatId ?? ""}
+          placeholder="chat_id в Telegram, например 125324909"
+          className={inputClass}
+        />
+        <span className="mt-1 block text-xs font-normal text-[var(--muted)]">
+          AI собирает данные (для возврата — ещё PDF-чек), проверяет, что всё есть, и шлёт
+          сводку этим же ботом на этот chat_id. Человек должен хотя бы раз написать боту.
+          Пусто — запросы не передаются, человеку уходит просьба написать позже.
+        </span>
+      </label>
 
       <label className="block text-sm font-medium sm:max-w-md">
         Модель

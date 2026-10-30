@@ -128,12 +128,15 @@ export async function handleIncomingMessage(params: IncomingParams) {
   if (outcome === "handled" || outcome === "operator") return { contact: enriched, subscriber };
 
   // Свободный вопрос, который сценарий не понял (или сценария нет), — отвечает AI.
-  // Кнопка «Поделиться телефоном» и голые вложения без текста — не вопросы.
-  if (bot.aiEnabled && text.trim() && !params.sharedPhone) {
+  // Файлы тоже важны: так присылают PDF-чек для возврата. Кнопка «Поделиться
+  // телефоном» — не вопрос.
+  const hasAttachments = (params.attachments?.length ?? 0) > 0;
+  if (bot.aiEnabled && (text.trim() || hasAttachments) && !params.sharedPhone) {
     await replyWithAi({
       bot,
       subscriber,
       text,
+      attachments: params.attachments,
       before: incoming?.createdAt,
     });
     return { contact: enriched, subscriber };

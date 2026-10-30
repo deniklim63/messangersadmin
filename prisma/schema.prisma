@@ -78,8 +78,12 @@ model Bot {
   aiKnowledge String?
   /// Передавать диалог оператору, если AI не может помочь.
   aiHandoff Boolean @default(true)
+  /// Куда слать собранные запросы на отмену подписки, возврат и удаление аккаунта:
+  /// chat_id в Telegram (или user_id во ВКонтакте) ответственного человека.
+  aiNotifyChatId String?
 
   subscribers Subscriber[]
+  aiRequests  AiRequest[]
   messages    Message[]
   events      WebhookEvent[]
   broadcasts  Broadcast[]
@@ -155,6 +159,7 @@ model Subscriber {
   currentBlock   ScenarioBlock? @relation(fields: [currentBlockId], references: [id], onDelete: SetNull)
   messages       Message[]
   scheduled      ScheduledStep[]
+  aiRequests     AiRequest[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -444,4 +449,31 @@ model ScenarioEvent {
 
   @@index([blockId, kind])
   @@index([buttonId])
+}
+
+/// Запрос человека, который AI собрал и передал ответственному:
+/// отмена подписки, возврат денег, удаление аккаунта.
+model AiRequest {
+  id           String     @id @default(cuid())
+  botId        String
+  bot          Bot        @relation(fields: [botId], references: [id], onDelete: Cascade)
+  subscriberId String
+  subscriber   Subscriber @relation(fields: [subscriberId], references: [id], onDelete: Cascade)
+
+  /// cancel_subscription | refund | delete_account
+  kind    String
+  email   String
+  /// Что ещё собрал бот: сайт, игра, сумма, причина — свободным текстом.
+  details String
+  /// PDF-чек для возврата: id MediaFile.
+  fileId  String?
+
+  /// Когда уведомление ушло; пусто — отправить не удалось (см. error).
+  notifiedAt DateTime?
+  error      String?
+
+  createdAt DateTime @default(now())
+
+  @@index([subscriberId, createdAt])
+  @@index([botId, createdAt])
 }
