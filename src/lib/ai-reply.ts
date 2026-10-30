@@ -3,6 +3,7 @@ import path from "node:path";
 import type { Bot, Subscriber } from "@/generated/prisma/client";
 import { logMessage } from "@/lib/contacts";
 import { prisma } from "@/lib/db";
+import { handToOperator } from "@/lib/operator";
 import { getGeminiKey } from "@/lib/settings";
 import { sendMessage, sendTypingAction } from "@/lib/platforms";
 
@@ -311,9 +312,9 @@ export async function replyWithAi(params: {
   });
 
   if (answer.handoff) {
-    await prisma.subscriber.update({
-      where: { id: subscriber.id },
-      data: { needsOperator: true, operatorSince: new Date() },
-    });
+    await handToOperator(
+      { subscriberId: subscriber.id, botId: bot.id, contactId: subscriber.contactId },
+      "AI не смог ответить сам",
+    );
   }
 }

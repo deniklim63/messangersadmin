@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { storeFile, type Attachment } from "@/lib/attachments";
 import { requireAuth } from "@/lib/auth";
 import { markAllRead as markAllReadInbox } from "@/lib/inbox";
+import { returnToBot } from "@/lib/operator";
 import { logMessage } from "@/lib/contacts";
 import { prisma } from "@/lib/db";
 import { isBlankMessage, TELEGRAM_CAPTION_LIMIT, toPlainText, toTelegramHtml } from "@/lib/message-format";
@@ -166,12 +167,13 @@ export async function sendTestMessage(
 export async function resetDialog(formData: FormData): Promise<void> {
   await requireAuth();
   const subscriberId = String(formData.get("subscriberId") ?? "");
-  await prisma.subscriber
-    .update({
-      where: { id: subscriberId },
-      data: { currentBlockId: null, needsOperator: false, operatorSince: null },
-    })
-    .catch(() => null);
+  const subscriber = await prisma.subscriber.findUnique({ where: { id: subscriberId } });
+  if (!subscriber) return;
+  await returnToBot(
+    { subscriberId, botId: subscriber.botId, contactId: subscriber.contactId },
+    "оператор сбросил шаг",
+  );
+  await prisma.subscriber.update({ where: { id: subscriberId }, data: { currentBlockId: null } });
   revalidatePath("/inbox");
 }
 
@@ -182,10 +184,10 @@ export async function releaseToBot(formData: FormData): Promise<void> {
   const subscriber = await prisma.subscriber.findUnique({ where: { id: subscriberId } });
   if (!subscriber) return;
 
-  await prisma.subscriber.update({
-    where: { id: subscriberId },
-    data: { needsOperator: false, operatorSince: null },
-  });
+  await returnToBot(
+    { subscriberId, botId: subscriber.botId, contactId: subscriber.contactId },
+    "оператор вернул диалог",
+  );
 
   revalidatePath("/inbox");
 }

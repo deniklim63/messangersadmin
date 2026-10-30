@@ -14,9 +14,15 @@ export type Conversation = {
   lastAt: string;
   unread: number;
   needsOperator: boolean;
+  operatorSince: string | null;
+  lastSource: string | null;
 };
 
-type Row = Omit<Conversation, "lastAt" | "unread"> & { lastAt: Date; unread: number };
+type Row = Omit<Conversation, "lastAt" | "unread" | "operatorSince"> & {
+  lastAt: Date;
+  unread: number;
+  operatorSince: Date | null;
+};
 
 /** Список диалогов для «Входящих»: последнее сообщение и число непрочитанных. */
 export async function getConversations(): Promise<Conversation[]> {
@@ -28,6 +34,8 @@ export async function getConversations(): Promise<Conversation[]> {
            b.platform::text AS platform,
            s.status::text AS status,
            s."needsOperator" AS "needsOperator",
+           s."operatorSince" AS "operatorSince",
+           lm.source AS "lastSource",
            CASE
              WHEN lm.text <> '' THEN lm.text
              WHEN lm.attachments IS NOT NULL THEN '[вложение]'
@@ -40,7 +48,7 @@ export async function getConversations(): Promise<Conversation[]> {
     JOIN "Contact" c ON c.id = s."contactId"
     JOIN "Bot" b ON b.id = s."botId"
     JOIN LATERAL (
-      SELECT m.text, m.direction, m."createdAt", m.attachments
+      SELECT m.text, m.direction, m."createdAt", m.attachments, m.source
       FROM "Message" m
       WHERE m."subscriberId" = s.id
       ORDER BY m."createdAt" DESC
@@ -56,7 +64,11 @@ export async function getConversations(): Promise<Conversation[]> {
     ORDER BY lm."createdAt" DESC
     LIMIT 200`;
 
-  return rows.map((row) => ({ ...row, lastAt: row.lastAt.toISOString() }));
+  return rows.map((row) => ({
+    ...row,
+    lastAt: row.lastAt.toISOString(),
+    operatorSince: row.operatorSince ? row.operatorSince.toISOString() : null,
+  }));
 }
 
 export async function countUnread(): Promise<number> {

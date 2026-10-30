@@ -39,6 +39,7 @@ export function Inbox({
   const [chat, setChat] = useState<Chat | null>(initialChat);
   const [query, setQuery] = useState("");
   const [onlyUnread, setOnlyUnread] = useState(false);
+  const [onlyOperator, setOnlyOperator] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -104,6 +105,7 @@ export function Inbox({
 
   const visible = conversations.filter((item) => {
     if (onlyUnread && item.unread === 0) return false;
+    if (onlyOperator && !item.needsOperator) return false;
     if (!query.trim()) return true;
     const needle = query.trim().toLowerCase();
     return (
@@ -140,6 +142,23 @@ export function Inbox({
             placeholder="Поиск по диалогам"
             className="w-full rounded-lg border border-[var(--line)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
           />
+          {conversations.some((item) => item.needsOperator) ? (
+            <button
+              type="button"
+              onClick={() => setOnlyOperator((value) => !value)}
+              className={`flex w-full items-center justify-between rounded-lg border px-3 py-2 text-sm ${
+                onlyOperator
+                  ? "border-rose-300 bg-rose-50 text-rose-800"
+                  : "border-rose-200 bg-rose-50/60 text-rose-700 hover:border-rose-300"
+              }`}
+              title="Показать только диалоги, которые бот передал человеку"
+            >
+              <span>🙋 Ждут оператора</span>
+              <span className="rounded-full bg-rose-600 px-2 py-0.5 text-xs font-semibold text-white tabular-nums">
+                {conversations.filter((item) => item.needsOperator).length}
+              </span>
+            </button>
+          ) : null}
           <div className="flex items-center justify-between gap-2">
             <label className="flex items-center gap-2 text-xs text-[var(--muted)]">
               <input
@@ -201,12 +220,15 @@ export function Inbox({
                       </div>
                       <div className="mt-0.5 flex items-center gap-2">
                         <span className="min-w-0 flex-1 truncate text-xs text-[var(--muted)]">
-                          {item.lastDirection === "OUT" ? "Вы: " : ""}
+                          {item.lastDirection === "OUT" && item.lastSource !== "system" ? "Вы: " : ""}
                           {item.lastText}
                         </span>
                         {item.needsOperator ? (
-                          <span className="shrink-0 rounded-md bg-rose-50 px-1.5 py-0.5 text-[11px] text-rose-700">
-                            оператор
+                          <span
+                            className="shrink-0 rounded-md bg-rose-600 px-1.5 py-0.5 text-[11px] font-medium text-white"
+                            title={item.operatorSince ? `Ждёт с ${new Date(item.operatorSince).toLocaleString("ru-RU")}` : "Ждёт оператора"}
+                          >
+                            🙋 {item.operatorSince ? ago(item.operatorSince) : "ждёт"}
                           </span>
                         ) : null}
                         {item.unread > 0 ? (
@@ -242,7 +264,7 @@ export function Inbox({
                   {chat.username ? ` · @${chat.username}` : ""}
                   {chat.city ? ` · ${chat.city}` : ""}
                   {chat.status !== "ACTIVE" ? " · заблокировал бота" : ""}
-                  {chat.needsOperator ? " · ждёт оператора" : ""}
+                  {chat.needsOperator ? " · 🙋 ждёт оператора" : ""}
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-2">
@@ -292,7 +314,22 @@ export function Inbox({
               {chat.messages.length === 0 ? (
                 <p className="text-sm text-[var(--muted)]">Сообщений пока нет.</p>
               ) : (
-                chat.messages.map((message) => (
+                chat.messages.map((message) =>
+                  message.source === "system" ? (
+                    <div key={message.id} className="flex justify-center py-1">
+                      <span
+                        className={`rounded-full border px-3 py-1 text-xs ${
+                          message.text.startsWith("🙋")
+                            ? "border-rose-200 bg-rose-50 text-rose-800"
+                            : "border-[var(--line)] bg-[var(--bg)] text-[var(--muted)]"
+                        }`}
+                        title={new Date(message.createdAt).toLocaleString("ru-RU")}
+                      >
+                        {message.text} ·{" "}
+                        {new Date(message.createdAt).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                    </div>
+                  ) : (
                   <div
                     key={message.id}
                     className={`max-w-[75%] rounded-xl px-3 py-2 text-sm ${
@@ -308,7 +345,8 @@ export function Inbox({
                       {new Date(message.createdAt).toLocaleString("ru-RU")}
                     </div>
                   </div>
-                ))
+                  ),
+                )
               )}
               <div ref={bottomRef} />
             </div>

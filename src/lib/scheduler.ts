@@ -2,6 +2,7 @@ import { deliverBroadcast } from "@/lib/broadcast-delivery";
 import { prisma } from "@/lib/db";
 import { runFromBlock } from "@/lib/scenario";
 import { processDueSchedules } from "@/lib/schedule-runs";
+import { returnToBot } from "@/lib/operator";
 
 const TICK_MS = 5000;
 const BATCH = 20;
@@ -76,19 +77,19 @@ export async function releaseIdleOperatorDialogs(): Promise<number> {
   const threshold = new Date(Date.now() - OPERATOR_IDLE_HOURS * 3_600_000);
   const waiting = await prisma.subscriber.findMany({
     where: { needsOperator: true, operatorSince: { lt: threshold } },
-    select: { id: true },
+    select: { id: true, botId: true, contactId: true },
   });
   let released = 0;
-  for (const { id } of waiting) {
+  for (const item of waiting) {
     const recent = await prisma.message.findFirst({
-      where: { subscriberId: id, createdAt: { gt: threshold } },
+      where: { subscriberId: item.id, createdAt: { gt: threshold }, source: { not: "system" } },
       select: { id: true },
     });
     if (recent) continue;
-    await prisma.subscriber.update({
-      where: { id },
-      data: { needsOperator: false, operatorSince: null },
-    });
+    await returnToBot(
+      { subscriberId: item.id, botId: item.botId, contactId: item.contactId },
+      `сутки без сообщений`,
+    );
     released += 1;
   }
   return released;

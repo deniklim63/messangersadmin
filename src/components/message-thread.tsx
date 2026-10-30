@@ -83,7 +83,14 @@ export function MessageThread({
         </p>
       ) : null}
       <ul className="mt-3 space-y-2">
-        {messages.map((message) => (
+        {messages.map((message) =>
+          message.source === "system" ? (
+            <li key={message.id} className="flex justify-center py-1">
+              <span className="rounded-full border border-[var(--line)] bg-[var(--bg)] px-3 py-1 text-xs text-[var(--muted)]">
+                {message.text} · {new Date(message.createdAt).toLocaleString("ru-RU")}
+              </span>
+            </li>
+          ) : (
           <li
             key={message.id}
             className={`max-w-[80%] rounded-xl px-3 py-2 text-sm ${
@@ -98,7 +105,8 @@ export function MessageThread({
               {new Date(message.createdAt).toLocaleString("ru-RU")}
             </div>
           </li>
-        ))}
+          ),
+        )}
       </ul>
     </>
   );

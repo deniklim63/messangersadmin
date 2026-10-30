@@ -14,6 +14,7 @@ import { runRequest } from "@/lib/run-request";
 import { parseInput, type InputKind, type ParsedInput } from "@/lib/input-parse";
 import { validateCity } from "@/lib/cities";
 import { getSetting, SETTING_LINK_TRACKING } from "@/lib/settings";
+import { handToOperator, returnToBot } from "@/lib/operator";
 import { ingestContact } from "@/lib/contacts";
 import { buildScope, render, renderMessage, type VariableScope } from "@/lib/template";
 
@@ -22,6 +23,7 @@ const MAX_CHAIN_STEPS = 10;
 
 type ScenarioBlock = {
   id: string;
+  title?: string;
   isStart: boolean;
   keywords: string[];
   kind: "MESSAGE" | "REQUEST" | "CODE" | "CONDITION" | "DELAY" | "HANDOFF" | "INPUT";
@@ -321,13 +323,13 @@ async function runChain(
     }
 
     if (current.kind === "HANDOFF") {
-      await prisma.subscriber.update({
-        where: { id: subscriber.id },
-        data: { needsOperator: true, operatorSince: new Date() },
-      });
       if (current.text.trim()) {
         await sendBlock(bot, subscriber, current, workingScope);
       }
+      await handToOperator(
+        { subscriberId: subscriber.id, botId: bot.id, contactId: subscriber.contactId },
+        `человек дошёл до блока «${current.title ?? "Оператор"}»`,
+      );
       return;
     }
 
@@ -420,10 +422,10 @@ export async function handleScenarioMessage(params: {
       params.text,
     );
     if (!wantsBot) return "operator";
-    await prisma.subscriber.update({
-      where: { id: params.subscriber.id },
-      data: { needsOperator: false, operatorSince: null },
-    });
+    await returnToBot(
+      { subscriberId: params.subscriber.id, botId: params.bot.id, contactId: params.subscriber.contactId },
+      "человек сам нажал кнопку сценария",
+    );
   }
 
   const current = scenario.blocks.find(
