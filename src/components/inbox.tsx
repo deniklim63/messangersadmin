@@ -6,7 +6,7 @@ import { markAllRead, releaseToBot, resetDialog, sendToSubscriber } from "@/lib/
 import { AttachmentList } from "@/components/attachment-list";
 import { FormatToolbar } from "@/components/format-toolbar";
 import { useInboxEvents } from "@/components/use-inbox-events";
-import type { Chat, Conversation } from "@/lib/inbox";
+import type { Chat, Conversation, InboxFacets } from "@/lib/inbox";
 
 // Страховка на случай, если поток событий не проходит: редкий фоновый опрос.
 const LIST_POLL_MS = 20000;
@@ -28,9 +28,11 @@ function ago(iso: string): string {
 export function Inbox({
   initialConversations,
   initialChat,
+  initialFacets,
 }: {
   initialConversations: Conversation[];
   initialChat: Chat | null;
+  initialFacets: InboxFacets;
 }) {
   const [conversations, setConversations] = useState(initialConversations);
   const [selectedId, setSelectedId] = useState<string | null>(
@@ -41,9 +43,11 @@ export function Inbox({
   const [onlyUnread, setOnlyUnread] = useState(false);
   const [onlyOperator, setOnlyOperator] = useState(false);
   const [botFilter, setBotFilter] = useState<string>("");
-  const bots = Array.from(
-    new Map(conversations.map((item) => [item.botId, { id: item.botId, title: item.botTitle, platform: item.platform }])).values(),
-  );
+  const [facets, setFacets] = useState<InboxFacets>(initialFacets);
+  const bots = facets.bots;
+  const waiting = botFilter
+    ? (bots.find((bot) => bot.id === botFilter)?.waiting ?? 0)
+    : facets.waiting;
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -54,14 +58,28 @@ export function Inbox({
 
   const loadList = useCallback(async () => {
     try {
-      const response = await fetch("/api/inbox", { cache: "no-store" });
+      // Фильтры применяются на сервере: иначе старые диалоги и чужие боты
+      // не попадали в первые 200 строк и фильтры «пропадали».
+      const params = new URLSearchParams();
+      if (botFilter) params.set("bot", botFilter);
+      if (onlyOperator) params.set("operator", "1");
+      if (onlyUnread) params.set("unread", "1");
+      if (query.trim()) params.set("q", query.trim());
+      const response = await fetch(`/api/inbox?${params}`, { cache: "no-store" });
       if (!response.ok) return;
-      const data = (await response.json()) as { conversations: Conversation[] };
+      const data = (await response.json()) as { conversations: Conversation[]; facets: InboxFacets };
       setConversations(data.conversations);
+      setFacets(data.facets);
     } catch {
       // молча: следующая попытка через несколько секунд
     }
-  }, []);
+  }, [botFilter, onlyOperator, onlyUnread, query]);
+
+  // Сменили фильтр или поиск — перезапрашиваем список (поиск — с небольшой паузой).
+  useEffect(() => {
+    const timer = setTimeout(() => void loadList(), query ? 300 : 0);
+    return () => clearTimeout(timer);
+  }, [loadList, query]);
 
   const loadChat = useCallback(async (subscriberId: string) => {
     try {
@@ -107,18 +125,8 @@ export function Inbox({
     bottomRef.current?.scrollIntoView({ block: "end" });
   }, [chat?.messages.length, chat?.subscriberId]);
 
-  const visible = conversations.filter((item) => {
-    if (onlyUnread && item.unread === 0) return false;
-    if (onlyOperator && !item.needsOperator) return false;
-    if (botFilter && item.botId !== botFilter) return false;
-    if (!query.trim()) return true;
-    const needle = query.trim().toLowerCase();
-    return (
-      item.name.toLowerCase().includes(needle) ||
-      item.lastText.toLowerCase().includes(needle) ||
-      item.botTitle.toLowerCase().includes(needle)
-    );
-  });
+  // Список уже отфильтрован сервером; непрочитанные гасим локально сразу после открытия.
+  const visible = conversations.filter((item) => !(onlyUnread && item.unread === 0));
 
   async function submit(formData: FormData) {
     if (!selectedId) return;
@@ -147,7 +155,7 @@ export function Inbox({
             placeholder="Поиск по диалогам"
             className="w-full rounded-lg border border-[var(--line)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
           />
-          {bots.length > 1 ? (
+          {bots.length > 0 ? (
             <select
               value={botFilter}
               onChange={(event) => setBotFilter(event.target.value)}
@@ -157,13 +165,13 @@ export function Inbox({
               <option value="">Все боты</option>
               {bots.map((bot) => (
                 <option key={bot.id} value={bot.id}>
-                  {bot.platform === "TELEGRAM" ? "Telegram" : "ВКонтакте"} · {bot.title} (
-                  {conversations.filter((item) => item.botId === bot.id).length})
+                  {bot.platform === "TELEGRAM" ? "Telegram" : "ВКонтакте"} · {bot.title} ({bot.total}
+                  {bot.waiting ? ` · 🙋 ${bot.waiting}` : ""})
                 </option>
               ))}
             </select>
           ) : null}
-          {conversations.some((item) => item.needsOperator) ? (
+          {waiting > 0 || onlyOperator ? (
             <button
               type="button"
               onClick={() => setOnlyOperator((value) => !value)}
@@ -176,7 +184,7 @@ export function Inbox({
             >
               <span>🙋 Ждут оператора</span>
               <span className="rounded-full bg-rose-600 px-2 py-0.5 text-xs font-semibold text-white tabular-nums">
-                {conversations.filter((item) => item.needsOperator && (!botFilter || item.botId === botFilter)).length}
+                {waiting}
               </span>
             </button>
           ) : null}

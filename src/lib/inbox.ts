@@ -1,4 +1,5 @@
 import { describeAttachments, type Attachment } from "@/lib/attachments";
+import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/db";
 import { notifyRead } from "@/lib/events";
 
@@ -25,8 +26,45 @@ type Row = Omit<Conversation, "lastAt" | "unread" | "operatorSince"> & {
   operatorSince: Date | null;
 };
 
+export type ConversationFilter = {
+  botId?: string | null;
+  onlyOperator?: boolean;
+  onlyUnread?: boolean;
+  query?: string | null;
+};
+
+export type InboxFacets = {
+  bots: { id: string; title: string; platform: "TELEGRAM" | "VK"; total: number; waiting: number }[];
+  waiting: number;
+};
+
+/** Что есть в базе вообще: по каким ботам есть диалоги и сколько ждут оператора. */
+export async function getInboxFacets(): Promise<InboxFacets> {
+  const rows = await prisma.$queryRaw<
+    { id: string; title: string; platform: "TELEGRAM" | "VK"; total: number; waiting: number }[]
+  >`
+    SELECT b.id, b.title, b.platform::text AS platform,
+           count(*)::int AS total,
+           count(*) FILTER (WHERE s."needsOperator")::int AS waiting
+    FROM "Subscriber" s
+    JOIN "Bot" b ON b.id = s."botId"
+    WHERE EXISTS (SELECT 1 FROM "Message" m WHERE m."subscriberId" = s.id)
+    GROUP BY b.id, b.title, b.platform
+    ORDER BY total DESC`;
+  return { bots: rows, waiting: rows.reduce((sum, row) => sum + row.waiting, 0) };
+}
+
 /** Список диалогов для «Входящих»: последнее сообщение и число непрочитанных. */
-export async function getConversations(): Promise<Conversation[]> {
+export async function getConversations(filter: ConversationFilter = {}): Promise<Conversation[]> {
+  const needle = filter.query?.trim() ? `%${filter.query.trim()}%` : null;
+  const conditions = [
+    filter.botId ? Prisma.sql`s."botId" = ${filter.botId}` : Prisma.sql`true`,
+    filter.onlyOperator ? Prisma.sql`s."needsOperator"` : Prisma.sql`true`,
+    filter.onlyUnread ? Prisma.sql`u.unread > 0` : Prisma.sql`true`,
+    needle
+      ? Prisma.sql`(c.name ILIKE ${needle} OR s.username ILIKE ${needle} OR c.phone ILIKE ${needle} OR c.email ILIKE ${needle} OR lm.text ILIKE ${needle})`
+      : Prisma.sql`true`,
+  ];
   const rows = await prisma.$queryRaw<Row[]>`
     SELECT s.id AS "subscriberId",
            c.id AS "contactId",
@@ -63,7 +101,8 @@ export async function getConversations(): Promise<Conversation[]> {
         AND m.direction = 'IN'
         AND (s."lastReadAt" IS NULL OR m."createdAt" > s."lastReadAt")
     ) u ON true
-    ORDER BY lm."createdAt" DESC
+    WHERE ${Prisma.join(conditions, " AND ")}
+    ORDER BY s."needsOperator" DESC, lm."createdAt" DESC
     LIMIT 200`;
 
   return rows.map((row) => ({
