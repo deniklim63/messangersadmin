@@ -8,7 +8,7 @@ import {
 } from "@/lib/message-format";
 import { sendMessage, sendTelegramPhotoByRef, uploadVkPhoto } from "@/lib/platforms";
 import { parseRules, pickBranch } from "@/lib/conditions";
-import { resolveExplicitTarget, resolveTarget } from "@/lib/scenario-routing";
+import { isStartCommand, resolveExplicitTarget, resolveTarget } from "@/lib/scenario-routing";
 import { runUserCode } from "@/lib/run-code";
 import { runRequest } from "@/lib/run-request";
 import { parseInput, type InputKind, type ParsedInput } from "@/lib/input-parse";
@@ -391,7 +391,8 @@ export async function handleScenarioMessage(params: {
 
   // Человек в кампании (другой сценарий): сначала пробуем её кнопки и вопросы,
   // и только если сообщение к ней не относится — возвращаемся в основной сценарий.
-  if (own && own.id !== active?.id) {
+  // «/start» и «меню» всегда ведут в основной сценарий, даже если человек сейчас в кампании.
+  if (own && own.id !== active?.id && !isStartCommand(params.text)) {
     const ownCurrent = own.blocks.find((block) => block.id === params.subscriber.currentBlockId);
     const ownTarget =
       byButton(own.blocks) ??

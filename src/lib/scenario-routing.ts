@@ -2,6 +2,11 @@
 
 const START_COMMANDS = ["/start", "start", "начать", "старт", "меню", "/menu"];
 
+/** «/start», «меню» и подобное — команды возврата в основной сценарий. */
+export function isStartCommand(text: string): boolean {
+  return START_COMMANDS.includes(normalize(text));
+}
+
 export type RoutingBlock = {
   id: string;
   isStart: boolean;
