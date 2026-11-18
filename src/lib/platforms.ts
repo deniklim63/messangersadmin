@@ -205,10 +205,11 @@ export async function sendTelegramMedia(
   kind: MediaKind,
   media: MediaSource,
   caption: string,
-  options: { html?: boolean } = {},
+  options: { html?: boolean; keyboard?: KeyboardButton[] } = {},
 ): Promise<SendResult & { fileId?: string }> {
   if (!bot.token) return { ok: false, error: "У бота не задан токен" };
   const method = kind === "photo" ? "sendPhoto" : kind === "video" ? "sendVideo" : "sendDocument";
+  const markup = options.keyboard?.length ? telegramInlineKeyboard(options.keyboard) : null;
 
   try {
     let response: Response;
@@ -222,6 +223,7 @@ export async function sendTelegramMedia(
           [kind]: media.fileId,
           caption: caption || undefined,
           ...(caption && options.html ? { parse_mode: "HTML" } : {}),
+          ...(markup ? { reply_markup: markup } : {}),
         }),
       });
     } else if (media.bytes) {
@@ -236,6 +238,7 @@ export async function sendTelegramMedia(
         form.append("caption", caption);
         if (options.html) form.append("parse_mode", "HTML");
       }
+      if (markup) form.append("reply_markup", JSON.stringify(markup));
       response = await fetch(`https://api.telegram.org/bot${bot.token}/${method}`, {
         method: "POST",
         body: form,

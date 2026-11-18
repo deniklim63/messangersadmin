@@ -57,6 +57,8 @@ export function BroadcastForm({
   }
 
   const isVideo = file?.type.startsWith("video/") ?? false;
+  const [buttons, setButtons] = useState<{ label: string; url: string }[]>([]);
+  const filledButtons = buttons.filter((button) => button.label.trim());
   const showPreview = Boolean(text.trim() || file);
 
   const selectedBot = bots.find((bot) => bot.id === botId);
@@ -97,6 +99,7 @@ export function BroadcastForm({
         setText("");
         pickFile(null);
         pickWhen("");
+        setButtons([]);
         formRef.current?.reset();
       }}
       className="space-y-5"
@@ -222,6 +225,67 @@ export function BroadcastForm({
         </p>
       </div>
 
+      <div>
+        <div className="flex items-center justify-between gap-2">
+          <div className="text-sm font-medium">Кнопки под сообщением</div>
+          <button
+            type="button"
+            onClick={() => setButtons((list) => [...list, { label: "", url: "" }])}
+            disabled={buttons.length >= 8}
+            className="rounded-lg border border-[var(--line)] bg-white px-3 py-1.5 text-sm hover:border-[var(--accent)] disabled:opacity-50"
+          >
+            + Добавить кнопку
+          </button>
+        </div>
+        {buttons.length === 0 ? (
+          <p className="mt-1 text-xs text-[var(--muted)]">
+            Кнопка со своим текстом, которая открывает сайт. Можно несколько.
+          </p>
+        ) : (
+          <div className="mt-2 space-y-2">
+            {buttons.map((button, index) => (
+              <div key={index} className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
+                <input
+                  name="buttonLabel"
+                  value={button.label}
+                  maxLength={64}
+                  onChange={(event) =>
+                    setButtons((list) =>
+                      list.map((item, position) =>
+                        position === index ? { ...item, label: event.target.value } : item,
+                      ),
+                    )
+                  }
+                  placeholder="Текст на кнопке"
+                  className={`${controlClass} sm:w-56`}
+                />
+                <input
+                  name="buttonUrl"
+                  value={button.url}
+                  onChange={(event) =>
+                    setButtons((list) =>
+                      list.map((item, position) =>
+                        position === index ? { ...item, url: event.target.value } : item,
+                      ),
+                    )
+                  }
+                  placeholder="https://quizplease.ru/…"
+                  className={controlClass}
+                />
+                <button
+                  type="button"
+                  onClick={() => setButtons((list) => list.filter((_, position) => position !== index))}
+                  title="Убрать кнопку"
+                  className="shrink-0 rounded-lg border border-[var(--line)] px-3 py-2 text-sm text-red-600 hover:border-red-300"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {showPreview ? (
         <div>
           <div className="text-sm font-medium">Так увидит подписчик</div>
@@ -241,6 +305,20 @@ export function BroadcastForm({
               />
             ) : null}
           </div>
+          {filledButtons.length ? (
+            <div className="mt-1 max-w-sm space-y-1">
+              {filledButtons.map((button, index) => (
+                <div
+                  key={index}
+                  className="relative rounded-xl border border-[var(--line)] bg-white px-3 py-2 text-center text-sm font-medium shadow-sm"
+                  title={button.url}
+                >
+                  {button.label}
+                  <span className="absolute right-2 top-1 text-[10px] text-[var(--muted)]">↗</span>
+                </div>
+              ))}
+            </div>
+          ) : null}
         </div>
       ) : null}
 

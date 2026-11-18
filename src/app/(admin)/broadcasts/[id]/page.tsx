@@ -88,6 +88,22 @@ export default async function BroadcastPage({ params }: { params: Promise<{ id: 
             />
           ) : null}
         </div>
+        {Array.isArray(broadcast.buttons) && broadcast.buttons.length ? (
+          <div className="mt-1 max-w-sm space-y-1">
+            {(broadcast.buttons as { label: string; url: string }[]).map((button, index) => (
+              <a
+                key={index}
+                href={button.url}
+                target="_blank"
+                rel="noreferrer"
+                className="block rounded-xl border border-[var(--line)] bg-white px-3 py-2 text-center text-sm font-medium hover:border-[var(--accent)]"
+                title={button.url}
+              >
+                {button.label} ↗
+              </a>
+            ))}
+          </div>
+        ) : null}
 
         <details className="mt-3 text-xs text-[var(--muted)]">
           <summary className="cursor-pointer">Исходный текст с разметкой</summary>

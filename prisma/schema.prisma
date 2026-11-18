@@ -225,6 +225,9 @@ model Broadcast {
   mediaId String?
   media   MediaFile? @relation(fields: [mediaId], references: [id], onDelete: SetNull)
 
+  /// Кнопки-ссылки под сообщением: [{ label, url }].
+  buttons Json?
+
   /// SCHEDULED — ждёт своего часа, SENDING — уходит, DONE — отправлена.
   status      String    @default("DONE")
   scheduledAt DateTime?

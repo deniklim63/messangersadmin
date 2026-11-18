@@ -55,6 +55,11 @@ export async function deliverBroadcast(broadcastId: string): Promise<DeliveryRes
   // Подпись к медиа в Telegram ограничена 1024 символами — длинный текст шлём отдельно.
   const captionFits = plain.length <= TELEGRAM_CAPTION_LIMIT;
   const mediaKind = (broadcast.mediaKind ?? "photo") as MediaKind;
+  // Кнопки-ссылки под сообщением.
+  const keyboard = (Array.isArray(broadcast.buttons) ? broadcast.buttons : [])
+    .map((item) => item as { label?: string; url?: string })
+    .filter((item) => item.label && item.url)
+    .map((item) => ({ label: item.label!, url: item.url!, inline: true }));
 
   let sent = 0;
   const failures: { name: string; reason: string }[] = [];
@@ -83,13 +88,14 @@ export async function deliverBroadcast(broadcastId: string): Promise<DeliveryRes
           mime: media.mime,
         },
         captionFits ? html : "",
-        { html: true },
+        // Если текст не влез в подпись, кнопки уйдут со вторым сообщением — под текстом.
+        { html: true, keyboard: captionFits || !plain ? keyboard : [] },
       );
       if (result.ok) telegramFileId = result.fileId ?? telegramFileId;
       error = result.ok ? undefined : result.error;
 
       if (!error && !captionFits && plain) {
-        const rest = await sendMessage(bot, subscriber.externalId, html, { html: true });
+        const rest = await sendMessage(bot, subscriber.externalId, html, { html: true, keyboard });
         error = rest.ok ? undefined : rest.error;
       }
     } else if (media && bot.platform === "VK") {
@@ -107,6 +113,7 @@ export async function deliverBroadcast(broadcastId: string): Promise<DeliveryRes
       }
       const result = await sendMessage(bot, subscriber.externalId, plain, {
         attachment: vkAttachment,
+        keyboard,
       });
       error = result.ok ? undefined : result.error;
     } else {
@@ -114,7 +121,7 @@ export async function deliverBroadcast(broadcastId: string): Promise<DeliveryRes
         bot,
         subscriber.externalId,
         bot.platform === "TELEGRAM" ? html : plain,
-        { html: bot.platform === "TELEGRAM" },
+        { html: bot.platform === "TELEGRAM", keyboard },
       );
       error = result.ok ? undefined : result.error;
     }

@@ -87,6 +87,27 @@ export async function sendBroadcast(
 
   if (!media && isBlankMessage(raw)) return { error: "Введите текст или приложите файл" };
 
+  // Кнопки-ссылки: подпись + адрес, пустые строки пропускаем.
+  const labels = formData.getAll("buttonLabel").map((value) => String(value).trim());
+  const urls = formData.getAll("buttonUrl").map((value) => String(value).trim());
+  const buttons: { label: string; url: string }[] = [];
+  for (const [index, label] of labels.entries()) {
+    let url = urls[index] ?? "";
+    if (!label && !url) continue;
+    if (!label) return { error: "У кнопки нет текста" };
+    if (!url) return { error: `У кнопки «${label}» нет ссылки` };
+    if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(url)) url = `https://${url}`;
+    try {
+      const parsed = new URL(url);
+      if (!["http:", "https:", "tg:"].includes(parsed.protocol)) throw new Error("protocol");
+    } catch {
+      return { error: `Ссылка кнопки «${label}» не похожа на адрес сайта` };
+    }
+    if (label.length > 64) return { error: `Текст кнопки «${label.slice(0, 20)}…» длиннее 64 символов` };
+    buttons.push({ label, url });
+  }
+  if (buttons.length > 8) return { error: "Не больше 8 кнопок в одной рассылке" };
+
   const recipients = await prisma.subscriber.count({ where: recipientsWhere(botId, cities) });
   if (recipients === 0) return { error: "Под выбор не попал ни один получатель" };
 
@@ -110,6 +131,7 @@ export async function sendBroadcast(
       mediaKind: media?.kind ?? null,
       mediaName: media?.filename ?? null,
       mediaId: stored?.id ?? null,
+      buttons: buttons.length ? buttons : undefined,
       status: scheduledAt ? "SCHEDULED" : "SENDING",
       scheduledAt,
       recipients,
